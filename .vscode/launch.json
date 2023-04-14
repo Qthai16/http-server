@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceRoot}/build/http-server-from-scratch",
-            "args": [],
+            "args": ["127.0.0.1", "8008"],
             "stopAtEntry": false,
             "cwd": "${workspaceRoot}/build",
             "externalConsole": false,
