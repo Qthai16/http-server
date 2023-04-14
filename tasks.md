@@ -1,0 +1,7 @@
+- Investigate how to create a HTTP server on linux (socket, fd, etc.). Must support method to setPorts, setAddress, set worker count
+- Implement a simple thread pool that handle all request
+- Support GET, POST and other HTTP methods to this server
+- Parse URL path, HTTP version, request headers, request body, etc.
+- Create several html pages for demonstrating
+- Choose a tool to test performance of the server (10k concurrent request, 100k request per second)
+- Package it as a shared library and link it to test.cpp to test
