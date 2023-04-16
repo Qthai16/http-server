@@ -31,123 +31,6 @@ using HeadersMap = std::map<std::string, std::string>;
 
 using namespace HttpMessage;
 
-// std::initializer_list<std::string> requiredHeaders = {"Content-Type", "Content-Length", "Connection"};
-
-// enum class HTTPMethod {
-//   GET,
-//   HEAD,
-//   POST,
-//   PUT,
-//   DELETE,
-//   CONNECT,
-//   OPTIONS,
-//   TRACE,
-//   PATCH
-// };
-
-// enum class HTTPVersion {
-//   HTTP_1_1 = 11,
-//   HTTP_2_0 = 20
-// };
-
-// enum class HTTPStatusCode {
-//   Continue = 100,
-//   OK = 200,
-//   Created = 201,
-//   Accepted = 202,
-//   NonAuthoritativeInformation = 203,
-//   NoContent = 204,
-//   ResetContent = 205,
-//   PartialContent = 206,
-//   MultipleChoices = 300,
-//   MovedPermanently = 301,
-//   Found = 302,
-//   NotModified = 304,
-//   BadRequest = 400,
-//   Unauthorized = 401,
-//   Forbidden = 403,
-//   NotFound = 404,
-//   MethodNotAllowed = 405,
-//   RequestTimeout = 408,
-//   ImATeapot = 418,
-//   InternalServerError = 500,
-//   NotImplemented = 501,
-//   BadGateway = 502,
-//   ServiceUnvailable = 503,
-//   GatewayTimeout = 504,
-//   HttpVersionNotSupported = 505
-// };
-
-// std::size_t content_length(std::istream& iss) {
-//   if(iss.bad())
-//     return 0;
-//   iss.seekg(0, std::ios_base::end);
-//   auto size = iss.tellg();
-//   iss.seekg(0, std::ios_base::beg);
-//   return size;
-// }
-
-// struct HTTPResponse {
-//   HTTPVersion _version;
-//   HTTPMethod _method;
-//   HTTPStatusCode _statusCode;
-//   HeadersMap _headers;
-//   std::istream& _content;
-
-//   HTTPResponse(std::istream& content) : _version(HTTPVersion::HTTP_1_1),
-//                                         _method(HTTPMethod::GET),
-//                                         _statusCode(HTTPStatusCode::OK),
-//                                         _headers(),
-//                                         _content(content) {}
-
-//   std::string method_str(const HTTPMethod& method) {
-//     switch(method) {
-//     case HTTPMethod::GET:
-//       return "GET";
-//     case HTTPMethod::HEAD:
-//       return "HEAD";
-//     case HTTPMethod::POST:
-//       return "POST";
-//     case HTTPMethod::PUT:
-//       return "PUT";
-//     case HTTPMethod::DELETE:
-//       return "DELETE";
-//     case HTTPMethod::CONNECT:
-//       return "CONNECT";
-//     case HTTPMethod::OPTIONS:
-//       return "OPTIONS";
-//     case HTTPMethod::TRACE:
-//       return "TRACE";
-//     case HTTPMethod::PATCH:
-//       return "PATCH";
-//     default:
-//       return "";
-//     }
-//   }
-
-//   std::string version_str(const HTTPVersion& version) {
-//     switch(version) {
-//     case HTTPVersion::HTTP_1_1:
-//       return "HTTP/1.1";
-//     case HTTPVersion::HTTP_2_0:
-//       return "HTTP/2.0";
-//     default:
-//       return "";
-//     }
-//   }
-
-//   friend std::ostream& operator<<(std::ostream& oss, const HTTPResponse& response) {
-//     // serialize to stream
-//     oss << "HTTP/1.1 200 OK\r\n"; // for testing only
-//     for(const auto& [key, value] : response._headers) {
-//       oss << key << ": " << value << "\r\n";
-//     }
-//     oss << "\r\n";
-//     oss << response._content.rdbuf();
-//     return oss;
-//   }
-// };
-
 void* get_ip_address(struct sockaddr* sa) {
   if(sa->sa_family == AF_INET) {
     return &(((struct sockaddr_in*)sa)->sin_addr);
@@ -209,18 +92,22 @@ int main(int argc, char* argv[]) {
 
     // std::string requestData;
     // recv(fd, requestData.data(), sendText.length(), 0);
+    ssize_t byte_count = recv(fd, buffer, sizeof(buffer), 0);
+    if(byte_count > 0) {
+      std::cout << "Received request: \n" << std::string(buffer, byte_count);
+    }
 
-    std::stringstream ss;
-    std::ifstream index("../index.html");
-    HTTPResponse response(index);
-    response._headers = {{{"Content-Type", "text/html"},
-                          {"Content-Length", std::to_string(content_length(index))},
-                          {"Connection", "keep-alive"}}};
-    ss << response;
-    auto sendText = ss.rdbuf()->str();
-    send(fd, sendText.data(), sendText.length(), 0);
-    close(fd);
-    std::this_thread::sleep_for(10ms);
+      std::stringstream ss;
+      std::ifstream index("../index.html");
+      HTTPResponse response(index);
+      response._headers = {{{"Content-Type", "text/html"},
+                            {"Content-Length", std::to_string(content_length(index))},
+                            {"Connection", "keep-alive"}}};
+      ss << response;
+      auto sendText = ss.rdbuf()->str();
+      send(fd, sendText.data(), sendText.length(), 0);
+      close(fd);
+      std::this_thread::sleep_for(10ms);
+    }
+    return 0;
   }
-  return 0;
-}
