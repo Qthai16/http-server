@@ -58,14 +58,11 @@ namespace HttpMessage {
 
   std::string method_str(const HTTPMethod& method);
   std::string version_str(const HTTPVersion& version);
-  inline std::size_t content_length(std::istream& iss) {
-    if(iss.bad())
-      return 0;
-    iss.seekg(0, std::ios_base::end);
-    auto size = iss.tellg();
-    iss.seekg(0, std::ios_base::beg);
-    return size;
-  }
+  std::size_t content_length(std::istream& iss);
+  HTTPVersion str_to_http_version(const std::string& str);
+  HTTPMethod str_to_method(const std::string& str);
+  std::vector<std::string> split_str(const std::string& text, const std::string& delimeters);
+  std::string trim_str(const std::string& str);
 
   struct HTTPResponse {
     HTTPVersion _version;
@@ -95,11 +92,46 @@ namespace HttpMessage {
     HTTPMethod _method;
     HeadersMap _headers;
     std::string _uri;
+    std::istream& _request;
+
+    HTTPRequest(std::istream& request) : _version(HTTPVersion::HTTP_1_1),
+                                         _method(HTTPMethod::GET),
+                                         _headers(),
+                                         _uri(),
+                                         _request(request) {
+      _request >> *this;
+    }
 
     friend std::istream& operator>>(std::istream& is, HTTPRequest& obj) {
       // read obj from stream
-      // if(/* T could not be constructed */)
-      //   is.setstate(std::ios::failbit);
+      if(is.bad())
+        return is;
+
+      std::string line;
+      std::string firstLine;
+      // first line is [method URI version]
+      if(std::getline(is, firstLine, '\n')) {
+        auto tokens = split_str(firstLine, " ");
+        if(tokens.size() != 3) {
+          std::cerr << "Error, invalid http message\n";
+          throw std::runtime_error("invalid http message");
+        }
+        obj._method = str_to_method(tokens[0]);
+        obj._uri = tokens[1];
+        obj._version = str_to_http_version(tokens[2]);
+      }
+      // next following lines are headers
+      while(std::getline(is, line, '\n')) {
+        auto trimLine = trim_str(line);
+        if(trimLine.empty())
+          break;
+        auto delimPos = trimLine.find(':');
+        auto header = trimLine.substr(0, delimPos);
+        auto value = trim_str(trimLine.substr(delimPos + 1));
+        obj._headers[header] = value;
+      }
+
+      // remaining line is body
       return is;
     }
   };

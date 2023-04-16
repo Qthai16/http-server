@@ -39,6 +39,10 @@ void* get_ip_address(struct sockaddr* sa) {
 }
 
 int main(int argc, char* argv[]) {
+  std::ifstream ifs("../request-chrome.txt");
+  HTTPRequest request(ifs);
+  // std::cout << std::boolalpha << (HttpMessage::trim_str("      fsdflakjdfalkd   \r\n   \r\r   ") == std::string{"fsdflakjdfalkd"}) << std::endl;
+  // std::cout << std::boolalpha << (HttpMessage::trim_str("\r\n").empty()) << std::endl;
   // std::map<URLFormat, HandlerFunction> handlerMaps;
   if(argc != 3) {
     std::cerr << "Usage: [executable] <address> <port> \n";
@@ -98,7 +102,7 @@ int main(int argc, char* argv[]) {
     }
 
       std::stringstream ss;
-      std::ifstream index("../index.html");
+      std::ifstream index("index.html");
       HTTPResponse response(index);
       response._headers = {{{"Content-Type", "text/html"},
                             {"Content-Length", std::to_string(content_length(index))},
