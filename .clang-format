@@ -1,0 +1,11 @@
+
+IndentWidth: 2
+AccessModifierOffset: -2
+UseTab: Never
+ColumnLimit: 0
+MaxEmptyLinesToKeep: 2
+SpaceBeforeParens: Never
+BreakBeforeBraces: Custom
+PointerAlignment: Left
+BraceWrapping: {BeforeElse: true, BeforeCatch: true}
+NamespaceIndentation: All
