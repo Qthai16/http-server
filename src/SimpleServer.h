@@ -25,7 +25,7 @@
 
 #define BUFFER_SIZE 4096
 #define QUEUEBACKLOG 100
-#define MAX_EPOLL_EVENTS 5000
+#define MAX_EPOLL_EVENTS 800
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
@@ -34,7 +34,7 @@ using namespace HttpMessage;
 namespace fs = std::filesystem;
 
 using URLFormat = std::string;
-using HandlerFunction = std::function<void(int)>;
+using HandlerFunction = std::function<HttpMessage::HTTPResponse(int, const HttpMessage::HTTPRequest&)>;
 using HandlersMap = std::unordered_map<URLFormat, std::pair<HTTPMethod, HandlerFunction>>;
 
 struct EpollHandle {
@@ -44,21 +44,21 @@ struct EpollHandle {
     std::size_t _cursor;
     char _eventBuffer[BUFFER_SIZE]; // limit to 4KB, need mechanism to handle big request body
 
-    EventData() : _fd(0), _length(0), _cursor(0), _eventBuffer() {
-      memset(_eventBuffer, 0, sizeof(_eventBuffer));
-    };
-    EventData(int fd) : _fd(fd), _length(0), _cursor(0), _eventBuffer() {
-      memset(_eventBuffer, 0, sizeof(_eventBuffer));
-    };
+    EventData() : _fd(0), _length(0), _cursor(0), _eventBuffer(){
+                                                      // memset(_eventBuffer, 0, sizeof(_eventBuffer));
+                                                  };
+    EventData(int fd) : _fd(fd), _length(0), _cursor(0), _eventBuffer(){
+                                                             // memset(_eventBuffer, 0, sizeof(_eventBuffer));
+                                                         };
 
-    ~EventData() {close(_fd);}
+    // ~EventData() { close(_fd); }
+    ~EventData() = default;
   };
 
   int _epollFd;
   epoll_event events[MAX_EPOLL_EVENTS];
-  epoll_event event;
 
-  EpollHandle() : _epollFd(-1), events(), event() {}
+  EpollHandle() : _epollFd(-1), events() {}
   ~EpollHandle() = default;
 
   void create_epoll() {
@@ -69,12 +69,12 @@ struct EpollHandle {
     }
   }
 
-  void add_or_modify_fd(int clientFd, int eventType, int opt) {
-    // auto eventData = std::make_shared<EventData>(clientFd);
+  void add_or_modify_fd(int clientFd, int eventType, int opt, EventData* eventData) {
+    // auto eventData = new EventData(clientFd);
     epoll_event event;
     event.data.fd = clientFd;
     event.events = eventType;
-    // event.data.ptr = (void*)eventData.get();
+    event.data.ptr = (void*)eventData;
     if(epoll_ctl(_epollFd, opt, clientFd, &event) == -1) {
       throw std::runtime_error("failed to add/modify fd");
     }
@@ -84,7 +84,7 @@ struct EpollHandle {
     if(epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, nullptr) == -1) {
       throw std::runtime_error("failed to delete fd");
     }
-    close(clientFd);
+    // close(clientFd);
   }
 };
 
@@ -118,8 +118,9 @@ private:
       }
 
       for(auto i = 0; i < nfds; i++) {
-        auto fd = _epollHandle.events[i].data.fd;
+        // auto fd = _epollHandle.events[i].data.fd;
         auto reqEventData = reinterpret_cast<EpollHandle::EventData*>(_epollHandle.events[i].data.ptr);
+        auto fd = reqEventData->_fd;
         auto eventTypes = _epollHandle.events[i].events;
         if(eventTypes == EPOLLIN || eventTypes == EPOLLOUT) {
           // normal case, recv or send
@@ -127,8 +128,9 @@ private:
         }
         else {
           // something went wrong
-          std::cout << "not implemented, event type: " << eventTypes << std::endl;
+          // std::cout << "not implemented, event type: " << eventTypes << std::endl;
           _epollHandle.delete_fd(fd);
+          delete reqEventData;
           reqEventData = nullptr;
         }
       }
@@ -142,27 +144,66 @@ private:
       std::stringstream ss;
       ss << eventDataPtr->_eventBuffer;
       HTTPRequest req(ss);
-      req.to_string(); // for debug
+      // req.to_string(); // for debug
       // matching using regex
       if(_handlersMap.count(req._path) && _handlersMap.at(req._path).first == req._method) {
         // call registered handler
-        _handlersMap.at(req._path).second(fd); // handler must close fd on completion or error
+        auto response = _handlersMap.at(req._path).second(fd, req); // handler must close fd on completion or error
+        std::stringstream outStream;
+        outStream << response;
+        outStream.seekg(0, std::ios_base::end);
+        auto size = outStream.tellg();
+        outStream.seekg(0, std::ios_base::beg);
+        auto resEventData = new EpollHandle::EventData(fd);
+        outStream.read(resEventData->_eventBuffer, size);
+        resEventData->_length = size;
+        _epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
+        delete eventDataPtr;
       }
     }
     else if((byte_count < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
       // no data available, try again
       _epollHandle.delete_fd(fd);
-      _epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD); // add again
+      auto reqEventData = new EpollHandle::EventData(fd);
+      _epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, reqEventData); // add again
     }
     else {
       // byte_count == 0 || other error
       _epollHandle.delete_fd(fd);
       close(fd);
+      delete eventDataPtr;
     }
   }
 
   void HandleWriteEvent(EpollHandle::EventData* eventDataPtr) {
-    std::cout << "handle write event" << std::endl;
+    // std::cout << "handle write event" << std::endl;
+    auto fd = eventDataPtr->_fd;
+    auto totalLen = eventDataPtr->_length;
+    auto sendBytes = send(fd, eventDataPtr->_eventBuffer + eventDataPtr->_cursor, eventDataPtr->_length, 0);
+    if(sendBytes >= 0) {
+      if(sendBytes < totalLen) {
+        eventDataPtr->_cursor += sendBytes;
+        eventDataPtr->_length -= sendBytes;
+        _epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
+      }
+      else { // write complete, reuse this fd
+        auto reqEventData = new EpollHandle::EventData(fd);
+        _epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, reqEventData);
+        delete eventDataPtr;
+        eventDataPtr = nullptr;
+      }
+    }
+    else {
+      if(errno == EAGAIN || errno == EWOULDBLOCK) { // retry
+        _epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_ADD, eventDataPtr);
+      }
+      else {
+        _epollHandle.delete_fd(fd);
+        close(fd);
+        delete eventDataPtr;
+        eventDataPtr = nullptr;
+      }
+    }
   }
 
   void HandleEvent(EpollHandle::EventData* eventDataPtr, uint32_t eventType) {
@@ -194,22 +235,20 @@ public:
   SimpleServer() = default;
   ~SimpleServer() {
     _stop = true;
-    if (_handleReqThread.joinable())
+    if(_handleReqThread.joinable())
       _handleReqThread.join();
     close(_serverFd);
   }
 
-  SimpleServer(std::string address, unsigned int port):
-    _address(address),
-    _port(port),
-    _handlersMap(),
-    _serverFd(-1),
-    _stop(false),
-    _sleepTimes(10ms),
-    _epollHandle(),
-    _handleReqThread(){
-
-    }
+  SimpleServer(std::string address, unsigned int port) : _address(address),
+                                                         _port(port),
+                                                         _handlersMap(),
+                                                         _serverFd(-1),
+                                                         _stop(false),
+                                                         _sleepTimes(10ms),
+                                                         _epollHandle(),
+                                                         _handleReqThread() {
+  }
 
   void Start() {
     sockaddr_in serv_addr;
@@ -241,7 +280,7 @@ public:
       return;
     }
     _epollHandle.create_epoll();
-    _handleReqThread = std::thread([this](){
+    _handleReqThread = std::thread([this]() {
       HandleClientConnections();
     });
     std::cout << "Simple server start listening on " << _address << ":" << _port << std::endl;
@@ -257,12 +296,13 @@ public:
         continue;
       }
 
-      char s[INET6_ADDRSTRLEN];
-      inet_ntop(connAddr.ss_family, IPAddressParse((struct sockaddr*)&connAddr), s, sizeof(s));
-      std::cout << "Got connection from " << s << std::endl;
+      // char s[INET6_ADDRSTRLEN];
+      // inet_ntop(connAddr.ss_family, IPAddressParse((struct sockaddr*)&connAddr), s, sizeof(s));
+      // std::cout << "Got connection from " << s << std::endl;
 
       // add client fd to epoll interest list
-      _epollHandle.add_or_modify_fd(clientfd, EPOLLIN, EPOLL_CTL_ADD); // leveled triggered
+      auto reqEventData = new EpollHandle::EventData(clientfd);
+      _epollHandle.add_or_modify_fd(clientfd, EPOLLIN, EPOLL_CTL_ADD, reqEventData); // leveled triggered
       std::this_thread::sleep_for(_sleepTimes);
     }
   }
@@ -286,11 +326,11 @@ public:
   //   response.status_code(HTTPStatusCode::NotFound).body(sendData);
   //   response._headers = HeadersMap{{{"Content-Type", "application/json"},
   //                                   {"Connection", "keep-alive"}}};
-  //   response.write();
   // }
 
-  static void SendStaticFile(std::string path, int clientfd) {
+  static HttpMessage::HTTPResponse SendStaticFile(std::string path, int clientfd, const HttpMessage::HTTPRequest& req) {
     HTTPResponse response(clientfd);
+    response._version = req._version;
     response._headers["Connection"] = "keep-alive";
 
     if(!fs::exists(path)) {
@@ -300,7 +340,7 @@ public:
       response._headers = {{
           {"Content-Type", "application/json"},
       }};
-      response.write();
+      return response;
     }
     std::ifstream file(path);
     if(!file.is_open()) {
@@ -310,7 +350,7 @@ public:
       response._headers = {{
           {"Content-Type", "application/json"},
       }};
-      response.write();
+      return response;
     }
 
     auto extension = fs::path(path).extension().string();
@@ -321,6 +361,6 @@ public:
       response._headers["Content-Type"] = "application/octet-stream"; // default for others
     }
     response.status_code(HTTPStatusCode::OK).body(extractStream(file));
-    response.write();
+    return response;
   }
 };

@@ -13,7 +13,6 @@
 
 
 namespace HttpMessage {
-  using HandlerFunction = std::function<void(int)>;
   using HeadersMap = std::map<std::string, std::string>;
 
   enum class HTTPMethod {
@@ -29,6 +28,7 @@ namespace HttpMessage {
   };
 
   enum class HTTPVersion {
+    HTTP_1_0 = 10,
     HTTP_1_1 = 11,
     HTTP_2_0 = 20
   };
@@ -91,23 +91,25 @@ namespace HttpMessage {
                                                        _headers(),
                                                        _body() {}
 
-    // friend std::ostream& operator<<(std::ostream& os, const HTTPResponse& response) {
-    void write() {
+    friend std::ostream& operator<<(std::ostream& responseStream, HTTPResponse& response) {
+    // std::ostream& get_formatted_stream(std::ostream& responseStream) {
       // serialize to stream
-      std::stringstream responseStream;
-      responseStream << version_str(_version) << " " << std::to_string(_statusCode) << " " << status_code_str(_statusCode) << "\r\n";
-      if(_body.empty())
-        _headers["Content-Length"] = "0";
+      // std::stringstream responseStream;
+      responseStream << version_str(response._version) << " " << std::to_string(response._statusCode) << " " << status_code_str(response._statusCode) << "\r\n";
+      if(response._body.empty())
+        response._headers["Content-Length"] = "0";
       else
-        _headers["Content-Length"] = std::to_string(_body.length());
-      for(const auto& [key, value] : _headers) {
+        response._headers["Content-Length"] = std::to_string(response._body.length());
+      for(const auto& [key, value] : response._headers) {
         responseStream << key << ": " << value << "\r\n";
       }
       responseStream << "\r\n";
-      responseStream << _body;
-      auto sendText = extractStream(responseStream);
-      send(_clientFd, sendText.data(), sendText.length(), 0);
-      close(_clientFd);
+      responseStream << response._body;
+      // auto sendText = extractStream(responseStream);
+      // send(_clientFd, sendText.data(), sendText.length(), 0);
+      // close(_clientFd);
+      responseStream.flush();
+      return responseStream;
     }
 
     HTTPResponse& status_code(HTTPStatusCode statusCode) {

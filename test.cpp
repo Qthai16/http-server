@@ -25,15 +25,16 @@ using namespace HttpMessage;
 using namespace std::placeholders;
 // namespace fs = std::filesystem;
 
-static void HandlePostForm(int clientfd) {
+static HttpMessage::HTTPResponse HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req) {
   std::string sendData = R"JSON({"results": "upload form successfully"})JSON";
   auto len = sendData.length();
-  HTTPResponse response(clientfd);
-  response.status_code(HTTPStatusCode::OK).body(sendData);
-  response._headers = {{{"Content-Length", std::to_string(len)},
+  HTTPResponse res(clientfd);
+  res._version = req._version;
+  res.status_code(HTTPStatusCode::OK).body(sendData);
+  res._headers = {{{"Content-Length", std::to_string(len)},
                         {"Connection", "keep-alive"}}};
-  response._headers["Content-Type"] = "application/json";
-  response.write();
+  res._headers["Content-Type"] = "application/json";
+  return res;
 }
 
 int main(int argc, char* argv[]) {
@@ -46,8 +47,8 @@ int main(int argc, char* argv[]) {
 
   SimpleServer server(address, port);
   server.AddHandlers({
-      {"/", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index.html", _1)}},
-      {"/styles.css", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/styles.css", _1)}},
+      {"/", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index.html", _1, _2)}},
+      {"/styles.css", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/styles.css", _1, _2)}},
       {"/form", {HTTPMethod::POST, &HandlePostForm}},
   });
   server.Start();
