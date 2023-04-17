@@ -16,43 +16,24 @@
 #include <unordered_map>
 
 #include <chrono>
-#include <filesystem>
+// #include <filesystem>
 
 #include "src/HttpMessage.h"
 #include "src/SimpleServer.h"
 
 using namespace HttpMessage;
 using namespace std::placeholders;
-namespace fs = std::filesystem;
+// namespace fs = std::filesystem;
 
-void SendStaticFile(std::string path, int clientfd) {
-  static std::map<std::string, std::string> mimeTypes = {
-      {".txt", "text/plain"},
-      {".html", "text/html"},
-      {".htm", "text/html"},
-      {".css", "text/css"}};
-  if(!fs::exists(path)) {
-    // send 404 not found
-    send(clientfd, std::string{}.data(), 0, 0);
-    close(clientfd);
-  }
-  auto extension = fs::path(path).extension().string();
-  std::stringstream ss;
-  // std::ifstream index("static/index.html");
-  std::ifstream index(path);
-  HTTPResponse response(index);
-  response._headers = {{{"Content-Length", std::to_string(content_length(index))},
+static void HandlePostForm(int clientfd) {
+  std::string sendData = R"JSON({"results": "upload form successfully"})JSON";
+  auto len = sendData.length();
+  HTTPResponse response(clientfd);
+  response.status_code(HTTPStatusCode::OK).body(sendData);
+  response._headers = {{{"Content-Length", std::to_string(len)},
                         {"Connection", "keep-alive"}}};
-  if(mimeTypes.count(extension)) {
-    response._headers["Content-Type"] = mimeTypes.at(extension);
-  }
-  else {
-    response._headers["Content-Type"] = "application/octet-stream"; // default for others
-  }
-  ss << response;
-  auto sendText = ss.rdbuf()->str();
-  send(clientfd, sendText.data(), sendText.length(), 0);
-  close(clientfd);
+  response._headers["Content-Type"] = "application/json";
+  response.write();
 }
 
 int main(int argc, char* argv[]) {
@@ -71,8 +52,9 @@ int main(int argc, char* argv[]) {
 
   SimpleServer server(address, port);
   server.AddHandlers({
-      {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1)}},
-      {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1)}},
+      {"/", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index.html", _1)}},
+      {"/styles.css", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/styles.css", _1)}},
+      {"/form", {HTTPMethod::POST, &HandlePostForm}},
   });
   server.Start();
   server.Listen();

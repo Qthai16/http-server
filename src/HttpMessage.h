@@ -1,10 +1,15 @@
 #pragma once
 
+#include <arpa/inet.h>
 #include <functional>
 #include <iostream>
 #include <map>
+#include <netinet/in.h>
 #include <sstream>
+#include <stdio.h>
 #include <string>
+#include <sys/socket.h>
+#include <unistd.h>
 
 
 namespace HttpMessage {
@@ -28,7 +33,7 @@ namespace HttpMessage {
     HTTP_2_0 = 20
   };
 
-  enum class HTTPStatusCode {
+  enum HTTPStatusCode {
     Continue = 100,
     OK = 200,
     Created = 201,
@@ -58,32 +63,61 @@ namespace HttpMessage {
 
   std::string method_str(const HTTPMethod& method);
   std::string version_str(const HTTPVersion& version);
+  std::string status_code_str(const HTTPStatusCode& code);
   std::size_t content_length(std::istream& iss);
+  std::size_t content_length(std::ostream& oss);
   HTTPVersion str_to_http_version(const std::string& str);
   HTTPMethod str_to_method(const std::string& str);
   std::vector<std::string> split_str(const std::string& text, const std::string& delimeters);
   std::string trim_str(const std::string& str);
 
+  static inline std::string extractStream(std::istream& input) {
+    if(input.fail())
+      return "";
+    std::stringstream buffer;
+    buffer << input.rdbuf();
+    return buffer.str();
+  }
+
   struct HTTPResponse {
+    int _clientFd;
     HTTPVersion _version;
     HTTPStatusCode _statusCode;
     HeadersMap _headers;
-    std::istream& _content;
+    std::string _body;
 
-    HTTPResponse(std::istream& content) : _version(HTTPVersion::HTTP_1_1),
-                                          _statusCode(HTTPStatusCode::OK),
-                                          _headers(),
-                                          _content(content) {}
+    HTTPResponse(int clientFd) : _clientFd(clientFd), _version(HTTPVersion::HTTP_1_1),
+                                                       _statusCode(HTTPStatusCode::OK),
+                                                       _headers(),
+                                                       _body() {}
 
-    friend std::ostream& operator<<(std::ostream& os, const HTTPResponse& response) {
+    // friend std::ostream& operator<<(std::ostream& os, const HTTPResponse& response) {
+    void write() {
       // serialize to stream
-      os << "HTTP/1.1 200 OK\r\n"; // for testing only
-      for(const auto& [key, value] : response._headers) {
-        os << key << ": " << value << "\r\n";
+      std::stringstream responseStream;
+      responseStream << version_str(_version) << " " << std::to_string(_statusCode) << " " << status_code_str(_statusCode) << "\r\n";
+      if(_body.empty())
+        _headers["Content-Length"] = "0";
+      else
+        _headers["Content-Length"] = std::to_string(_body.length());
+      for(const auto& [key, value] : _headers) {
+        responseStream << key << ": " << value << "\r\n";
       }
-      os << "\r\n";
-      os << response._content.rdbuf();
-      return os;
+      responseStream << "\r\n";
+      responseStream << _body;
+      auto sendText = extractStream(responseStream);
+      send(_clientFd, sendText.data(), sendText.length(), 0);
+      close(_clientFd);
+    }
+
+    HTTPResponse& status_code(HTTPStatusCode statusCode) {
+      _statusCode = statusCode;
+      return *this;
+    }
+
+    HTTPResponse& body(const std::string& content) {
+      _body = std::move(content);
+      return *this;
     }
   };
 
@@ -93,7 +127,7 @@ namespace HttpMessage {
     HeadersMap _headers;
     HeadersMap _queryParams;
     std::string _path;
-    std::stringstream _body; //may have RAM issues with large request body
+    std::stringstream _body; // may have RAM issues with large request body
     std::istream& _request;
 
     HTTPRequest(std::istream& request) : _version(HTTPVersion::HTTP_1_1),
@@ -109,14 +143,14 @@ namespace HttpMessage {
 
     void parse_query_params(const std::string& path) {
       auto startPos = path.find("?");
-      if (startPos == std::string::npos)
+      if(startPos == std::string::npos)
         return;
-      auto queries = path.substr(startPos+1);
+      auto queries = path.substr(startPos + 1);
       auto pairs = split_str(queries, "&");
-      for (const auto& pair : pairs) {
+      for(const auto& pair : pairs) {
         auto delimPos = pair.find("=");
-        if (delimPos != std::string::npos)
-          _queryParams[pair.substr(0, delimPos)] = pair.substr(delimPos+1);
+        if(delimPos != std::string::npos)
+          _queryParams[pair.substr(0, delimPos)] = pair.substr(delimPos + 1);
       }
     }
 
@@ -151,7 +185,7 @@ namespace HttpMessage {
       }
 
       // remaining lines is body
-      while(std::getline(is, line)){
+      while(std::getline(is, line)) {
         _body << line;
       }
       // return is;
@@ -160,13 +194,16 @@ namespace HttpMessage {
     std::string to_string() { // for debug only
       std::cout << "version: " << version_str(_version) << ", method: " << method_str(_method) << "\n";
       std::cout << "path: " << _path << "\n";
-      for (const auto& [key, value] : _headers) {
+      std::cout << "HEADERS: " << std::endl;
+      for(const auto& [key, value] : _headers) {
         std::cout << key << ": " << value << '\n';
       }
-      for (const auto& [key, value] : _queryParams) {
+      std::cout << "QUERY PARAMS: " << std::endl;
+      for(const auto& [key, value] : _queryParams) {
         std::cout << key << ": " << value << '\n';
       }
       std::string body = _body.str();
+      std::cout << "BODY: " << std::endl;
       std::cout << body << std::endl;
       return "";
     }
