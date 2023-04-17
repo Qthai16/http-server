@@ -1,30 +1,31 @@
 #pragma once
 
-#include <iostream>
-#include <string>
-#include <thread>
-
-#include <arpa/inet.h>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <map>
-#include <netinet/in.h>
 #include <regex>
 #include <sstream>
-#include <stdio.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include <string>
+#include <thread>
 #include <unordered_map>
 
-#include <chrono>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include "HttpMessage.h"
 
 #define BUFFER_SIZE 4096
 #define QUEUEBACKLOG 100
+#define MAX_EPOLL_EVENTS 5000
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
@@ -36,6 +37,57 @@ using URLFormat = std::string;
 using HandlerFunction = std::function<void(int)>;
 using HandlersMap = std::unordered_map<URLFormat, std::pair<HTTPMethod, HandlerFunction>>;
 
+struct EpollHandle {
+  struct EventData {
+    int _fd;
+    std::size_t _length;
+    std::size_t _cursor;
+    char _eventBuffer[BUFFER_SIZE]; // limit to 4KB, need mechanism to handle big request body
+
+    EventData() : _fd(0), _length(0), _cursor(0), _eventBuffer() {
+      memset(_eventBuffer, 0, sizeof(_eventBuffer));
+    };
+    EventData(int fd) : _fd(fd), _length(0), _cursor(0), _eventBuffer() {
+      memset(_eventBuffer, 0, sizeof(_eventBuffer));
+    };
+
+    ~EventData() {close(_fd);}
+  };
+
+  int _epollFd;
+  epoll_event events[MAX_EPOLL_EVENTS];
+  epoll_event event;
+
+  EpollHandle() : _epollFd(-1), events(), event() {}
+  ~EpollHandle() = default;
+
+  void create_epoll() {
+    _epollFd = epoll_create1(0);
+    if(_epollFd == -1) {
+      std::cerr << "failed to create epoll" << std::endl;
+      throw std::runtime_error("failed to create epoll");
+    }
+  }
+
+  void add_or_modify_fd(int clientFd, int eventType, int opt) {
+    // auto eventData = std::make_shared<EventData>(clientFd);
+    epoll_event event;
+    event.data.fd = clientFd;
+    event.events = eventType;
+    // event.data.ptr = (void*)eventData.get();
+    if(epoll_ctl(_epollFd, opt, clientFd, &event) == -1) {
+      throw std::runtime_error("failed to add/modify fd");
+    }
+  }
+
+  void delete_fd(int clientFd) {
+    if(epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, nullptr) == -1) {
+      throw std::runtime_error("failed to delete fd");
+    }
+    close(clientFd);
+  }
+};
+
 
 class SimpleServer {
 private:
@@ -43,17 +95,92 @@ private:
   unsigned int _port;
   HandlersMap _handlersMap;
   int _serverFd;
-  char _buffer[BUFFER_SIZE]; // limit to 4KB request, need mechanism to handle big request
   std::atomic_bool _stop;
   std::chrono::milliseconds _sleepTimes;
+  EpollHandle _epollHandle;
+  std::thread _handleReqThread;
 
 
 private:
-  void* get_ip_address(struct sockaddr* sa) {
+  void* IPAddressParse(struct sockaddr* sa) {
     if(sa->sa_family == AF_INET) {
       return &(((struct sockaddr_in*)sa)->sin_addr);
     }
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
+  }
+
+  void HandleClientConnections() {
+    while(!_stop) {
+      auto nfds = epoll_wait(_epollHandle._epollFd, _epollHandle.events, MAX_EPOLL_EVENTS, -1); // return immediately
+      if(nfds <= 0) {
+        std::this_thread::sleep_for(_sleepTimes);
+        continue;
+      }
+
+      for(auto i = 0; i < nfds; i++) {
+        auto fd = _epollHandle.events[i].data.fd;
+        auto reqEventData = reinterpret_cast<EpollHandle::EventData*>(_epollHandle.events[i].data.ptr);
+        auto eventTypes = _epollHandle.events[i].events;
+        if(eventTypes == EPOLLIN || eventTypes == EPOLLOUT) {
+          // normal case, recv or send
+          HandleEvent(reqEventData, eventTypes);
+        }
+        else {
+          // something went wrong
+          std::cout << "not implemented, event type: " << eventTypes << std::endl;
+          _epollHandle.delete_fd(fd);
+          reqEventData = nullptr;
+        }
+      }
+    }
+  }
+
+  void HandleReadEvent(EpollHandle::EventData* eventDataPtr) {
+    auto fd = eventDataPtr->_fd;
+    ssize_t byte_count = recv(fd, eventDataPtr->_eventBuffer, sizeof(eventDataPtr->_eventBuffer), 0);
+    if(byte_count > 0) {
+      std::stringstream ss;
+      ss << eventDataPtr->_eventBuffer;
+      HTTPRequest req(ss);
+      req.to_string(); // for debug
+      // matching using regex
+      if(_handlersMap.count(req._path) && _handlersMap.at(req._path).first == req._method) {
+        // call registered handler
+        _handlersMap.at(req._path).second(fd); // handler must close fd on completion or error
+      }
+    }
+    else if((byte_count < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      // no data available, try again
+      _epollHandle.delete_fd(fd);
+      _epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD); // add again
+    }
+    else {
+      // byte_count == 0 || other error
+      _epollHandle.delete_fd(fd);
+      close(fd);
+    }
+  }
+
+  void HandleWriteEvent(EpollHandle::EventData* eventDataPtr) {
+    std::cout << "handle write event" << std::endl;
+  }
+
+  void HandleEvent(EpollHandle::EventData* eventDataPtr, uint32_t eventType) {
+    switch(eventType) {
+    case EPOLLIN: {
+      HandleReadEvent(eventDataPtr);
+      break;
+    }
+    case EPOLLOUT: {
+      HandleWriteEvent(eventDataPtr);
+      break;
+    }
+    default: {
+      std::cerr << "event " << eventType << " is not handle" << std::endl;
+      throw std::logic_error("epoll event is not implemented");
+      break;
+    }
+    }
   }
 
 public:
@@ -66,17 +193,23 @@ public:
 public:
   SimpleServer() = default;
   ~SimpleServer() {
+    _stop = true;
+    if (_handleReqThread.joinable())
+      _handleReqThread.join();
     close(_serverFd);
   }
-  SimpleServer(std::string address, unsigned int port) : _address(address),
-                                                         _port(port),
-                                                         _handlersMap(),
-                                                         _serverFd(-1),
-                                                         _buffer(),
-                                                         _stop(false),
-                                                         _sleepTimes(10ms) {
-    memset(_buffer, 0, sizeof(_buffer));
-  }
+
+  SimpleServer(std::string address, unsigned int port):
+    _address(address),
+    _port(port),
+    _handlersMap(),
+    _serverFd(-1),
+    _stop(false),
+    _sleepTimes(10ms),
+    _epollHandle(),
+    _handleReqThread(){
+
+    }
 
   void Start() {
     sockaddr_in serv_addr;
@@ -86,7 +219,7 @@ public:
     inet_pton(AF_INET, _address.c_str(), &(serv_addr.sin_addr.s_addr));
     serv_addr.sin_port = htons(_port);
 
-    _serverFd = socket(AF_INET, SOCK_STREAM, 0);
+    _serverFd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if(_serverFd < 0) {
       throw std::runtime_error("Failed to open socket");
       return;
@@ -107,41 +240,29 @@ public:
       throw std::runtime_error("Failed to listen socket");
       return;
     }
+    _epollHandle.create_epoll();
+    _handleReqThread = std::thread([this](){
+      HandleClientConnections();
+    });
     std::cout << "Simple server start listening on " << _address << ":" << _port << std::endl;
   }
 
   void Listen() {
     while(!_stop) {
       sockaddr_storage connAddr;
-      char s[INET6_ADDRSTRLEN];
       socklen_t connAddrSize = sizeof(connAddr);
-      auto clientfd = accept(_serverFd, (struct sockaddr*)&connAddr, &connAddrSize);
+      auto clientfd = accept4(_serverFd, (struct sockaddr*)&connAddr, &connAddrSize, SOCK_NONBLOCK);
       if(clientfd == -1) {
-        // something went wrong
-        std::cerr << "Failed to accept incomming connection\n";
+        // std::cerr << "Failed to accept incomming connection" << std::endl;
         continue;
       }
 
-      inet_ntop(connAddr.ss_family, get_ip_address((struct sockaddr*)&connAddr), s, sizeof(s));
+      char s[INET6_ADDRSTRLEN];
+      inet_ntop(connAddr.ss_family, IPAddressParse((struct sockaddr*)&connAddr), s, sizeof(s));
       std::cout << "Got connection from " << s << std::endl;
 
-      memset(_buffer, 0, sizeof(_buffer));
-      ssize_t byte_count = recv(clientfd, _buffer, sizeof(_buffer), 0);
-      if(byte_count > 0) {
-        std::stringstream ss;
-        ss << _buffer;
-        HTTPRequest req(ss);
-        // req.to_string(); for debug
-        // matching using regex
-        if(_handlersMap.count(req._path) && _handlersMap.at(req._path).first == req._method) {
-          // call registered handler
-          _handlersMap.at(req._path).second(clientfd);
-        }
-      }
-      else if(byte_count == 0) {
-        close(clientfd);
-        continue;
-      }
+      // add client fd to epoll interest list
+      _epollHandle.add_or_modify_fd(clientfd, EPOLLIN, EPOLL_CTL_ADD); // leveled triggered
       std::this_thread::sleep_for(_sleepTimes);
     }
   }
@@ -159,16 +280,14 @@ public:
     _handlersMap[path] = {method, fn};
   }
 
-  void SendResourceNotFound(int clientfd) {
-    HTTPResponse response(clientfd);
-    std::string sendData = R"JSON({"errors": "resource not found"})JSON";
-    response.status_code(HTTPStatusCode::NotFound).body(sendData);
-    response._headers = HeadersMap{{
-        {"Content-Type", "application/json"},
-        {"Connection", "keep-alive"}
-    }};
-    response.write();
-  }
+  // void SendResourceNotFound(int clientfd) {
+  //   HTTPResponse response(clientfd);
+  //   std::string sendData = R"JSON({"errors": "resource not found"})JSON";
+  //   response.status_code(HTTPStatusCode::NotFound).body(sendData);
+  //   response._headers = HeadersMap{{{"Content-Type", "application/json"},
+  //                                   {"Connection", "keep-alive"}}};
+  //   response.write();
+  // }
 
   static void SendStaticFile(std::string path, int clientfd) {
     HTTPResponse response(clientfd);
