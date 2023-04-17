@@ -125,17 +125,13 @@ public:
       inet_ntop(connAddr.ss_family, get_ip_address((struct sockaddr*)&connAddr), s, sizeof(s));
       std::cout << "Got connection from " << s << std::endl;
 
-      // std::string requestData;
-      // recv(fd, requestData.data(), sendText.length(), 0);
-
       memset(_buffer, 0, sizeof(_buffer));
       ssize_t byte_count = recv(clientfd, _buffer, sizeof(_buffer), 0);
       if(byte_count > 0) {
         std::stringstream ss;
-        // std::cout << std::string(_buffer, byte_count);
         ss << _buffer;
         HTTPRequest req(ss);
-        req.to_string();
+        // req.to_string(); for debug
         // matching using regex
         if(_handlersMap.count(req._path) && _handlersMap.at(req._path).first == req._method) {
           // call registered handler
@@ -187,8 +183,6 @@ public:
       }};
       response.write();
     }
-    // std::stringstream ss;
-    // std::ifstream index("static/index.html");
     std::ifstream file(path);
     if(!file.is_open()) {
       // send internal error
