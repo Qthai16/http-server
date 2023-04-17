@@ -125,6 +125,7 @@ std::size_t HttpMessage::content_length(std::ostream& oss) {
 
 HttpMessage::HTTPVersion HttpMessage::str_to_http_version(const std::string& str) {
   static std::map<std::string, HttpMessage::HTTPVersion> convertMap = {
+      {"HTTP/1.0", HttpMessage::HTTPVersion::HTTP_1_0},
       {"HTTP/1.1", HttpMessage::HTTPVersion::HTTP_1_1},
       {"HTTP/2.0", HttpMessage::HTTPVersion::HTTP_2_0}};
   std::string copyStr;
