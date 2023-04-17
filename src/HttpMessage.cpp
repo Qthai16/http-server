@@ -10,7 +10,7 @@
 
 // using namespace HttpMessage;
 
-std::initializer_list<std::string> requiredHeaders = {"Content-Type", "Content-Length", "Connection"};
+// std::initializer_list<std::string> requiredHeaders = {"Content-Type", "Content-Length", "Connection"};
 
 std::string HttpMessage::method_str(const HttpMessage::HTTPMethod& method) {
   switch(method) {
