@@ -48,12 +48,78 @@ std::string HttpMessage::version_str(const HttpMessage::HTTPVersion& version) {
   }
 }
 
+std::string HttpMessage::status_code_str(const HttpMessage::HTTPStatusCode& code) {
+  switch(code) {
+  case HttpMessage::HTTPStatusCode::Continue:
+    return "Continue";
+  case HttpMessage::HTTPStatusCode::OK:
+    return "OK";
+  case HttpMessage::HTTPStatusCode::Created:
+    return "Created";
+  case HttpMessage::HTTPStatusCode::Accepted:
+    return "Accepted";
+  case HttpMessage::HTTPStatusCode::NonAuthoritativeInformation:
+    return "NonAuthoritativeInformation";
+  case HttpMessage::HTTPStatusCode::NoContent:
+    return "NoContent";
+  case HttpMessage::HTTPStatusCode::ResetContent:
+    return "ResetContent";
+  case HttpMessage::HTTPStatusCode::PartialContent:
+    return "PartialContent";
+  case HttpMessage::HTTPStatusCode::MultipleChoices:
+    return "MultipleChoices";
+  case HttpMessage::HTTPStatusCode::MovedPermanently:
+    return "MovedPermanently";
+  case HttpMessage::HTTPStatusCode::Found:
+    return "Found";
+  case HttpMessage::HTTPStatusCode::NotModified:
+    return "NotModified";
+  case HttpMessage::HTTPStatusCode::BadRequest:
+    return "BadRequest";
+  case HttpMessage::HTTPStatusCode::Unauthorized:
+    return "Unauthorized";
+  case HttpMessage::HTTPStatusCode::Forbidden:
+    return "Forbidden";
+  case HttpMessage::HTTPStatusCode::NotFound:
+    return "NotFound";
+  case HttpMessage::HTTPStatusCode::MethodNotAllowed:
+    return "MethodNotAllowed";
+  case HttpMessage::HTTPStatusCode::RequestTimeout:
+    return "RequestTimeout";
+  case HttpMessage::HTTPStatusCode::ImATeapot:
+    return "ImATeapot";
+  case HttpMessage::HTTPStatusCode::InternalServerError:
+    return "InternalServerError";
+  case HttpMessage::HTTPStatusCode::NotImplemented:
+    return "NotImplemented";
+  case HttpMessage::HTTPStatusCode::BadGateway:
+    return "BadGateway";
+  case HttpMessage::HTTPStatusCode::ServiceUnvailable:
+    return "ServiceUnvailable";
+  case HttpMessage::HTTPStatusCode::GatewayTimeout:
+    return "GatewayTimeout";
+  case HttpMessage::HTTPStatusCode::HttpVersionNotSupported:
+    return "HttpVersionNotSupported";
+  default:
+    return "";
+  }
+}
+
 std::size_t HttpMessage::content_length(std::istream& iss) {
   if(iss.bad())
     return 0;
   iss.seekg(0, std::ios_base::end);
   auto size = iss.tellg();
   iss.seekg(0, std::ios_base::beg);
+  return size;
+}
+
+std::size_t HttpMessage::content_length(std::ostream& oss) {
+  if(oss.bad())
+    return 0;
+  oss.seekp(0, std::ios_base::end);
+  auto size = oss.tellp();
+  oss.seekp(0, std::ios_base::beg);
   return size;
 }
 
@@ -72,15 +138,15 @@ HttpMessage::HTTPVersion HttpMessage::str_to_http_version(const std::string& str
 
 HttpMessage::HTTPMethod HttpMessage::str_to_method(const std::string& str) {
   static std::map<std::string, HttpMessage::HTTPMethod> convertMap = {
-    {"GET", HttpMessage::HTTPMethod::GET},
-    {"HEAD", HttpMessage::HTTPMethod::HEAD},
-    {"POST", HttpMessage::HTTPMethod::POST},
-    {"PUT", HttpMessage::HTTPMethod::PUT},
-    {"DELETE", HttpMessage::HTTPMethod::DELETE},
-    {"CONNECT", HttpMessage::HTTPMethod::CONNECT},
-    {"OPTIONS", HttpMessage::HTTPMethod::OPTIONS},
-    {"TRACE", HttpMessage::HTTPMethod::TRACE},
-    {"PATCH", HttpMessage::HTTPMethod::PATCH},
+      {"GET", HttpMessage::HTTPMethod::GET},
+      {"HEAD", HttpMessage::HTTPMethod::HEAD},
+      {"POST", HttpMessage::HTTPMethod::POST},
+      {"PUT", HttpMessage::HTTPMethod::PUT},
+      {"DELETE", HttpMessage::HTTPMethod::DELETE},
+      {"CONNECT", HttpMessage::HTTPMethod::CONNECT},
+      {"OPTIONS", HttpMessage::HTTPMethod::OPTIONS},
+      {"TRACE", HttpMessage::HTTPMethod::TRACE},
+      {"PATCH", HttpMessage::HTTPMethod::PATCH},
   };
   std::string copyStr;
   std::transform(str.cbegin(), str.cend(), std::back_inserter(copyStr), [](char c) {
@@ -107,25 +173,10 @@ std::vector<std::string> HttpMessage::split_str(const std::string& text, const s
 }
 
 std::string HttpMessage::trim_str(const std::string& str) {
-  auto trim = [](char c){return !(std::iscntrl(c) || c == ' ');};
+  auto trim = [](char c) { return !(std::iscntrl(c) || c == ' '); };
   auto start = std::find_if(str.cbegin(), str.cend(), trim);
   auto end = std::find_if(str.rbegin(), str.rend(), trim);
-  if ((start == str.cend()) || (end == str.rend()))
+  if((start == str.cend()) || (end == str.rend()))
     return "";
   return std::string(start, end.base());
 }
-
-// struct HTTPResponse {
-//   HTTPVersion _version;
-//   HTTPMethod _method;
-//   HTTPStatusCode _statusCode;
-//   HeadersMap _headers;
-//   std::istream& _content;
-
-//   HTTPResponse(std::istream& content) : _version(HTTPVersion::HTTP_1_1),
-//                                         _method(HTTPMethod::GET),
-//                                         _statusCode(HTTPStatusCode::OK),
-//                                         _headers(),
-//                                         _content(content) {}
-
-// };

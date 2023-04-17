@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <atomic>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <map>
@@ -28,6 +29,8 @@
 using namespace std::chrono;
 using namespace std::chrono_literals;
 using namespace HttpMessage;
+
+namespace fs = std::filesystem;
 
 using URLFormat = std::string;
 using HandlerFunction = std::function<void(int)>;
@@ -52,6 +55,13 @@ private:
     }
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
   }
+
+public:
+  static inline std::map<std::string, std::string> _mimeTypes = {
+      {".txt", "text/plain"},
+      {".html", "text/html"},
+      {".htm", "text/html"},
+      {".css", "text/css"}};
 
 public:
   SimpleServer() = default;
@@ -126,7 +136,8 @@ public:
         ss << _buffer;
         HTTPRequest req(ss);
         req.to_string();
-        if (_handlersMap.count(req._path) && _handlersMap.at(req._path).first == req._method) {
+        // matching using regex
+        if(_handlersMap.count(req._path) && _handlersMap.at(req._path).first == req._method) {
           // call registered handler
           _handlersMap.at(req._path).second(clientfd);
         }
@@ -135,17 +146,6 @@ public:
         close(clientfd);
         continue;
       }
-
-      // std::stringstream ss;
-      // std::ifstream index("static/index.html");
-      // HTTPResponse response(index);
-      // response._headers = {{{"Content-Type", "text/html"},
-      //                       {"Content-Length", std::to_string(content_length(index))},
-      //                       {"Connection", "keep-alive"}}};
-      // ss << response;
-      // auto sendText = ss.rdbuf()->str();
-      // send(clientfd, sendText.data(), sendText.length(), 0);
-      // close(clientfd);
       std::this_thread::sleep_for(_sleepTimes);
     }
   }
@@ -159,7 +159,55 @@ public:
       _handlersMap[path] = pair;
     }
   }
-  void AddHandlers(URLFormat path, HttpMessage::HTTPMethod method , HandlerFunction fn) {
+  void AddHandlers(URLFormat path, HttpMessage::HTTPMethod method, HandlerFunction fn) {
     _handlersMap[path] = {method, fn};
+  }
+
+  void SendResourceNotFound(int clientfd) {
+    HTTPResponse response(clientfd);
+    std::string sendData = R"JSON({"errors": "resource not found"})JSON";
+    response.status_code(HTTPStatusCode::NotFound).body(sendData);
+    response._headers = HeadersMap{{
+        {"Content-Type", "application/json"},
+        {"Connection", "keep-alive"}
+    }};
+    response.write();
+  }
+
+  static void SendStaticFile(std::string path, int clientfd) {
+    HTTPResponse response(clientfd);
+    response._headers["Connection"] = "keep-alive";
+
+    if(!fs::exists(path)) {
+      // send 404 not found
+      std::string sendData = R"JSON({"errors": "resource not found"})JSON";
+      response.status_code(HTTPStatusCode::NotFound).body(sendData);
+      response._headers = {{
+          {"Content-Type", "application/json"},
+      }};
+      response.write();
+    }
+    // std::stringstream ss;
+    // std::ifstream index("static/index.html");
+    std::ifstream file(path);
+    if(!file.is_open()) {
+      // send internal error
+      std::string sendData = R"JSON({"errors": "failed to open file"})JSON";
+      response.status_code(HTTPStatusCode::InternalServerError).body(sendData);
+      response._headers = {{
+          {"Content-Type", "application/json"},
+      }};
+      response.write();
+    }
+
+    auto extension = fs::path(path).extension().string();
+    if(_mimeTypes.count(extension)) {
+      response._headers["Content-Type"] = _mimeTypes.at(extension);
+    }
+    else {
+      response._headers["Content-Type"] = "application/octet-stream"; // default for others
+    }
+    response.status_code(HTTPStatusCode::OK).body(extractStream(file));
+    response.write();
   }
 };
