@@ -117,6 +117,15 @@ private:
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
   }
 
+  HandlersMap::const_iterator get_registered_path(std::string path) {
+    // matching using regex
+    auto iter = std::find_if(_handlersMap.cbegin(), _handlersMap.cend(), [path](const HandlersMap::value_type& pair){
+      auto pathRegex = std::regex(pair.first);
+      return std::regex_match(path, pathRegex);
+    });
+    return iter;
+  }
+
   void HandleClientConnections(EpollHandle& epollHandle) {
     while(!_stop) {
       auto nfds = epoll_wait(epollHandle._epollFd, epollHandle.events, MAX_EPOLL_EVENTS, -1); // wait forever
@@ -154,10 +163,10 @@ private:
       ss << eventDataPtr->_eventBuffer;
       HTTPRequest req(ss);
       // req.to_string(); // for debug
-      // matching using regex
-      if(_handlersMap.count(req._path) && _handlersMap.at(req._path).first == req._method) {
+      auto maybeIter = get_registered_path(req._path);
+      if(maybeIter != _handlersMap.end() && maybeIter->second.first == req._method) {
         // call registered handler
-        auto response = _handlersMap.at(req._path).second(fd, req); // handler must close fd on completion or error
+        auto response = maybeIter->second.second(fd, req); // handler must close fd on completion or error
         std::stringstream outStream;
         outStream << response;
         outStream.seekg(0, std::ios_base::end);
