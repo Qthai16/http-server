@@ -41,14 +41,20 @@ struct EpollHandle {
     std::size_t _cursor;
     char _eventBuffer[BUFFER_SIZE];
     HTTPRequest* _request;
+    HTTPResponse* _response;
 
     EventData() :
-        _fd(0), _length(0), _cursor(0), _eventBuffer(), _request(new HTTPRequest()){};
+        _fd(0), _length(0), _cursor(0), _eventBuffer(), _request(new HTTPRequest()), _response(nullptr){};
     EventData(int fd) :
-        _fd(fd), _length(0), _cursor(0), _eventBuffer(), _request(new HTTPRequest()){};
+        _fd(fd), _length(0), _cursor(0), _eventBuffer(), _request(new HTTPRequest()), _response(new HTTPResponse(fd)){};
 
     // ~EventData() { close(_fd); }
-    ~EventData() { delete _request; };
+    ~EventData() {
+      if(_request)
+        delete _request;
+      if(_response)
+        delete _response;
+    };
   };
 
   int _epollFd;
@@ -78,7 +84,7 @@ struct EpollHandle {
     event.events = eventType;
     event.data.ptr = (void*)eventData;
     if(epoll_ctl(_epollFd, opt, clientFd, &event) == -1) {
-      // std::cout << "failed to add/modify fd: " << errno << std::endl;
+      std::cout << "failed to add/modify fd: " << strerror(errno) << std::endl;
       throw std::runtime_error("failed to add/modify fd");
     }
   }
@@ -95,7 +101,7 @@ struct EpollHandle {
 class SimpleServer {
 public:
   using URLFormat = std::string;
-  using HandlerFunction = std::function<HttpMessage::HTTPResponse(int, const HttpMessage::HTTPRequest&)>;
+  using HandlerFunction = std::function<void(int, const HttpMessage::HTTPRequest&, HttpMessage::HTTPResponse&)>;
   using HandlersMap = std::unordered_map<URLFormat, std::pair<HTTPMethod, HandlerFunction>>;
 
 private:
@@ -118,7 +124,7 @@ private:
   }
 
   HandlersMap::const_iterator get_registered_path(std::string path, bool exactMatch = true) {
-    if (exactMatch)
+    if(exactMatch)
       return _handlersMap.find(path);
     // matching using regex, slower than string exact match
     auto iter = std::find_if(_handlersMap.cbegin(), _handlersMap.cend(), [path](const HandlersMap::value_type& pair) {
@@ -166,29 +172,40 @@ private:
     auto httpReqPtr = eventDataPtr->_request;
     auto byte_count = recv(fd, eventDataPtr->_eventBuffer, sizeof(eventDataPtr->_eventBuffer), 0);
     if(byte_count > 0) {
-      std::stringstream ss;
-      ss.write(eventDataPtr->_eventBuffer, byte_count);
-      httpReqPtr->parse_request(ss);
+      httpReqPtr->_bufferStream.write(eventDataPtr->_eventBuffer, byte_count);
+      httpReqPtr->parse_request();
       if(httpReqPtr->_totalRead < httpReqPtr->content_length()) { // still have bytes to read
         epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
       }
       else {
         auto matchIter = get_registered_path(httpReqPtr->_path); // exact match first
-        if (matchIter == _handlersMap.end()) {
+        if(matchIter == _handlersMap.end()) {
           matchIter = get_registered_path(httpReqPtr->_path, false);
         }
         if(matchIter != _handlersMap.end() && matchIter->second.first == httpReqPtr->_method) {
           // call registered handler
-          auto response = matchIter->second.second(fd, *httpReqPtr); // handler must close fd on completion or error
-          std::stringstream outStream;
-          outStream << response;
-          outStream.seekg(0, std::ios_base::end);
-          auto size = outStream.tellg();
-          outStream.seekg(0, std::ios_base::beg);
           auto resEventData = new EpollHandle::EventData(fd);
-          outStream.read(resEventData->_eventBuffer, size);
-          resEventData->_length = size;
-          epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
+          auto httpResPtr = resEventData->_response;
+          // auto httpResPtr = eventDataPtr->_response;
+          matchIter->second.second(fd, *httpReqPtr, *httpResPtr); // handler must close fd on completion or error
+          // std::stringstream outStream;
+          // outStream << response;
+          httpResPtr->serialize_reponse(resEventData->_eventBuffer, BUFFER_SIZE);
+          // eventDataPtr->_length = httpResPtr->_contentLength;
+          resEventData->_length = BUFFER_SIZE;
+          // outStream.seekp(0, std::ios_base::end);
+          // auto size = outStream.tellp();
+          // outStream.seekp(0, std::ios_base::beg);
+          // auto resEventData = new EpollHandle::EventData(fd);
+          // outStream.read(resEventData->_eventBuffer, BUFFER_SIZE);
+          // resEventData->_length = BUFFER_SIZE;
+          // if (httpResPtr->_totalWrite < httpResPtr->_contentLength) {
+          //   epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_ADD, resEventData);
+          //   // epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, eventDataPtr);
+          // }
+          // else {
+            epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
+          // }
           delete eventDataPtr;
         }
       }
@@ -209,12 +226,15 @@ private:
 
   void HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr) {
     auto fd = eventDataPtr->_fd;
-    auto totalLen = eventDataPtr->_length;
-    auto sendBytes = send(fd, eventDataPtr->_eventBuffer + eventDataPtr->_cursor, eventDataPtr->_length, 0);
+    // auto totalLen = eventDataPtr->_length;
+    auto sendBytes = send(fd, eventDataPtr->_eventBuffer, sizeof(eventDataPtr->_eventBuffer), 0);
     if(sendBytes >= 0) {
-      if(sendBytes < totalLen) {
-        eventDataPtr->_cursor += sendBytes;
-        eventDataPtr->_length -= sendBytes;
+      // if(sendBytes < totalLen) {
+      if (eventDataPtr->_response->_totalWrite < eventDataPtr->_response->_contentLength) {
+        // eventDataPtr->_cursor += sendBytes;
+        // eventDataPtr->_length -= sendBytes;
+        eventDataPtr->_response->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
+        eventDataPtr->_length = BUFFER_SIZE;
         epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
       }
       else { // write complete, reuse this fd for read event
@@ -368,30 +388,32 @@ public:
   //                                   {"Connection", "keep-alive"}}};
   // }
 
-  static HttpMessage::HTTPResponse SendStaticFile(std::string path, int clientfd, const HttpMessage::HTTPRequest& req) {
-    HTTPResponse response(clientfd);
+  static void SendStaticFile(std::string path, int clientfd, const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& response) {
+    // HTTPResponse response(clientfd);
     response._version = req._version;
     response._headers["Connection"] = "keep-alive";
 
     if(!fs::exists(path)) {
       // send 404 not found
       std::string sendData = R"JSON({"errors": "resource not found"})JSON";
-      response.status_code(HTTPStatusCode::NotFound).body(sendData);
+      response.status_code(HTTPStatusCode::NotFound);
+      response.set_str_body(sendData);
       response._headers = {{
           {"Content-Type", "application/json"},
       }};
-      return response;
+      return;
     }
-    std::ifstream file(path);
-    if(!file.is_open()) {
-      // send internal error
-      std::string sendData = R"JSON({"errors": "failed to open file"})JSON";
-      response.status_code(HTTPStatusCode::InternalServerError).body(sendData);
-      response._headers = {{
-          {"Content-Type", "application/json"},
-      }};
-      return response;
-    }
+    // std::ifstream file(path);
+    // if(!file.is_open()) {
+    //   // send internal error
+    //   std::string sendData = R"JSON({"errors": "failed to open file"})JSON";
+    //   response.status_code(HTTPStatusCode::InternalServerError);
+    //   response.set_str_body(sendData);
+    //   response._headers = {{
+    //       {"Content-Type", "application/json"},
+    //   }};
+    //   return response;
+    // }
 
     auto extension = fs::path(path).extension().string();
     if(_mimeTypes.count(extension)) {
@@ -400,7 +422,10 @@ public:
     else {
       response._headers["Content-Type"] = "application/octet-stream"; // default for others
     }
-    response.status_code(HTTPStatusCode::OK).body(Utils::extract_stream(file));
-    return response;
+    // response.status_code(HTTPStatusCode::OK).body(Utils::extract_stream(file));
+    response.status_code(HTTPStatusCode::OK);
+    response.set_file_body(path);
+    // std::cout << Utils::extract_stream(file) << std::endl;
+    return;
   }
 };
