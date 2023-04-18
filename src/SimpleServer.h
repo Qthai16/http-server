@@ -118,8 +118,8 @@ private:
   }
 
   HandlersMap::const_iterator get_registered_path(std::string path) {
-    // matching using regex
-    auto iter = std::find_if(_handlersMap.cbegin(), _handlersMap.cend(), [path](const HandlersMap::value_type& pair){
+    // matching using regex, slower than string exact match
+    auto iter = std::find_if(_handlersMap.cbegin(), _handlersMap.cend(), [path](const HandlersMap::value_type& pair) {
       auto pathRegex = std::regex(pair.first);
       return std::regex_match(path, pathRegex);
     });

@@ -1,6 +1,9 @@
 #! /bin/bash
 
-./wrk -t12 -c400 -d30s http://127.0.0.1:11225/
+./wrk -c400 -d15s -t12 http://127.0.0.1:11225/
+wait
+./wrk -c10000 -d15s -t10 -s post.lua http://127.0.0.1:11225/form
 wait
 ab -c 100 -n 50000 -k http://127.0.0.1:11225/
-
+wait
+ab -c 500 -n 100000 -p CMakeLists.txt -k http://127.0.0.1:11225/form

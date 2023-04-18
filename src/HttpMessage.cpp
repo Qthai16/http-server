@@ -39,6 +39,8 @@ std::string HttpMessage::method_str(const HttpMessage::HTTPMethod& method) {
 
 std::string HttpMessage::version_str(const HttpMessage::HTTPVersion& version) {
   switch(version) {
+  case HTTPVersion::HTTP_1_0:
+    return "HTTP/1.0";
   case HTTPVersion::HTTP_1_1:
     return "HTTP/1.1";
   case HTTPVersion::HTTP_2_0:
