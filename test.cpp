@@ -51,6 +51,7 @@ int main(int argc, char* argv[]) {
   server.AddHandlers({
       {"/", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index.html", _1, _2)}},
       {"/styles.css", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/styles.css", _1, _2)}},
+      {"/test", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index-backup.html", _1, _2)}},
       {"/form", {HTTPMethod::POST, &HandlePostForm}},
   });
   server.Start();
