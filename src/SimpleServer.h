@@ -101,13 +101,13 @@ public:
 private:
   std::string _address;
   unsigned int _port;
+  std::size_t _poolSize;
   HandlersMap _handlersMap;
   int _serverFd;
   std::atomic_bool _stop;
   std::chrono::milliseconds _sleepTimes;
-  EpollHandle _epollHandle;
-  std::thread _handleReqThread;
-
+  std::vector<EpollHandle> _epollHandles;
+  std::vector<std::thread> _workersPool;
 
 private:
   void* IPAddressParse(struct sockaddr* sa) {
@@ -117,9 +117,9 @@ private:
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
   }
 
-  void HandleClientConnections() {
+  void HandleClientConnections(EpollHandle& epollHandle) {
     while(!_stop) {
-      auto nfds = epoll_wait(_epollHandle._epollFd, _epollHandle.events, MAX_EPOLL_EVENTS, -1); // wait forever
+      auto nfds = epoll_wait(epollHandle._epollFd, epollHandle.events, MAX_EPOLL_EVENTS, -1); // wait forever
       if(nfds <= 0) {
         std::this_thread::sleep_for(_sleepTimes);
         continue;
@@ -127,17 +127,18 @@ private:
 
       for(auto i = 0; i < nfds; i++) {
         // sometimes EPOLLHUP and EPOLLERR bit is set make fd a not valid value
-        // auto fd = _epollHandle.events[i].data.fd;
-        auto reqEventData = reinterpret_cast<EpollHandle::EventData*>(_epollHandle.events[i].data.ptr);
+        // auto fd = epollHandle.events[i].data.fd;
+        auto reqEventData = reinterpret_cast<EpollHandle::EventData*>(epollHandle.events[i].data.ptr);
         auto fd = reqEventData->_fd;
-        auto eventTypes = _epollHandle.events[i].events;
+        auto eventTypes = epollHandle.events[i].events;
         if(eventTypes == EPOLLIN || eventTypes == EPOLLOUT) {
           // normal case, recv or send
-          HandleEvent(reqEventData, eventTypes);
+          HandleEvent(epollHandle, reqEventData, eventTypes);
         }
         else {
           // errors or event is not handled
-          _epollHandle.delete_fd(fd);
+          epollHandle.delete_fd(fd);
+          close(fd);
           delete reqEventData;
           reqEventData = nullptr;
         }
@@ -145,7 +146,7 @@ private:
     }
   }
 
-  void HandleReadEvent(EpollHandle::EventData* eventDataPtr) {
+  void HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr) {
     auto fd = eventDataPtr->_fd;
     auto byte_count = recv(fd, eventDataPtr->_eventBuffer, sizeof(eventDataPtr->_eventBuffer), 0);
     if(byte_count > 0) {
@@ -165,25 +166,25 @@ private:
         auto resEventData = new EpollHandle::EventData(fd);
         outStream.read(resEventData->_eventBuffer, size);
         resEventData->_length = size;
-        _epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
+        epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
         delete eventDataPtr;
       }
     }
     else if((byte_count < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
       // no data available, try again
-      _epollHandle.delete_fd(fd);
+      epollHandle.delete_fd(fd);
       auto reqEventData = new EpollHandle::EventData(fd);
-      _epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, reqEventData);
+      epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, reqEventData);
     }
     else {
-      // byte_count == 0 and other errors
-      _epollHandle.delete_fd(fd);
+      // byte_count = 0 (connection close by client) and other errors
+      epollHandle.delete_fd(fd);
       close(fd);
       delete eventDataPtr;
     }
   }
 
-  void HandleWriteEvent(EpollHandle::EventData* eventDataPtr) {
+  void HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr) {
     auto fd = eventDataPtr->_fd;
     auto totalLen = eventDataPtr->_length;
     auto sendBytes = send(fd, eventDataPtr->_eventBuffer + eventDataPtr->_cursor, eventDataPtr->_length, 0);
@@ -191,21 +192,22 @@ private:
       if(sendBytes < totalLen) {
         eventDataPtr->_cursor += sendBytes;
         eventDataPtr->_length -= sendBytes;
-        _epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
+        epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
       }
       else { // write complete, reuse this fd for read event
         auto reqEventData = new EpollHandle::EventData(fd);
-        _epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, reqEventData);
+        epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, reqEventData);
+        // epollHandle.delete_fd(fd);
         delete eventDataPtr;
         eventDataPtr = nullptr;
       }
     }
     else {
       if(errno == EAGAIN || errno == EWOULDBLOCK) { // retry
-        _epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_ADD, eventDataPtr);
+        epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_ADD, eventDataPtr);
       }
       else {
-        _epollHandle.delete_fd(fd);
+        epollHandle.delete_fd(fd);
         close(fd);
         delete eventDataPtr;
         eventDataPtr = nullptr;
@@ -213,14 +215,14 @@ private:
     }
   }
 
-  void HandleEvent(EpollHandle::EventData* eventDataPtr, uint32_t eventType) {
+  void HandleEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr, uint32_t eventType) {
     switch(eventType) {
     case EPOLLIN: {
-      HandleReadEvent(eventDataPtr);
+      HandleReadEvent(epollHandle, eventDataPtr);
       break;
     }
     case EPOLLOUT: {
-      HandleWriteEvent(eventDataPtr);
+      HandleWriteEvent(epollHandle, eventDataPtr);
       break;
     }
     default: {
@@ -242,20 +244,22 @@ public:
   SimpleServer() = default;
   ~SimpleServer() {
     _stop = true;
-    if(_handleReqThread.joinable())
-      _handleReqThread.join();
+    for(auto& t : _workersPool) {
+      t.join();
+    }
     close(_serverFd);
   }
 
-  SimpleServer(std::string address, unsigned int port) :
+  SimpleServer(std::string address, unsigned int port, std::size_t poolSize = 1) :
       _address(address),
       _port(port),
+      _poolSize(poolSize),
       _handlersMap(),
       _serverFd(-1),
       _stop(false),
       _sleepTimes(10ms),
-      _epollHandle(),
-      _handleReqThread() {
+      _epollHandles(),
+      _workersPool() {
   }
 
   void Start() {
@@ -287,20 +291,25 @@ public:
       throw std::runtime_error("Failed to listen socket");
       return;
     }
-    _epollHandle.create_epoll();
-    _handleReqThread = std::thread([this]() {
-      HandleClientConnections();
-    });
+
+    for(std::size_t i = 0; i < _poolSize; ++i) {
+      auto handle = EpollHandle();
+      handle.create_epoll();
+      _epollHandles.push_back(std::move(handle));
+      _workersPool.push_back(std::thread(std::bind(&SimpleServer::HandleClientConnections, this, _epollHandles.back())));
+    }
     std::cout << "Simple server start listening on " << _address << ":" << _port << std::endl;
   }
 
   void Listen() {
+    std::size_t spinCnt = 0;
     while(!_stop) {
       sockaddr_storage connAddr;
       socklen_t connAddrSize = sizeof(connAddr);
       auto clientfd = accept4(_serverFd, (struct sockaddr*)&connAddr, &connAddrSize, SOCK_NONBLOCK);
       if(clientfd == -1) {
         // std::cerr << "Failed to accept incomming connection" << std::endl;
+        // std::this_thread::sleep_for(_sleepTimes);
         continue;
       }
 
@@ -310,8 +319,9 @@ public:
 
       // add fd to epoll interest list
       auto reqEventData = new EpollHandle::EventData(clientfd);
-      _epollHandle.add_or_modify_fd(clientfd, EPOLLIN, EPOLL_CTL_ADD, reqEventData); // leveled triggered
-      std::this_thread::sleep_for(_sleepTimes);
+      _epollHandles[spinCnt].add_or_modify_fd(clientfd, EPOLLIN, EPOLL_CTL_ADD, reqEventData); // leveled triggered
+      if(++spinCnt >= _poolSize)
+        spinCnt = 0;
     }
   }
 

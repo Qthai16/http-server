@@ -23,6 +23,8 @@
 
 using namespace HttpMessage;
 using namespace std::placeholders;
+
+#define THREADPOOL_SIZE 5
 // namespace fs = std::filesystem;
 
 static HttpMessage::HTTPResponse HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req) {
@@ -45,7 +47,7 @@ int main(int argc, char* argv[]) {
   std::string address(argv[1]);
   auto port = stoi(std::string{argv[2]});
 
-  SimpleServer server(address, port);
+  SimpleServer server(address, port, THREADPOOL_SIZE);
   server.AddHandlers({
       {"/", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index.html", _1, _2)}},
       {"/styles.css", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/styles.css", _1, _2)}},
