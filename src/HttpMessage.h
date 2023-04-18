@@ -67,6 +67,7 @@ namespace HttpMessage {
   std::string status_code_str(const HTTPStatusCode& code);
   HTTPVersion str_to_http_version(const std::string& str);
   HTTPMethod str_to_method(const std::string& str);
+  std::string headers_get_field(const HeadersMap& headers, std::string key);
 
   struct HTTPResponse {
     HTTPVersion _version;
@@ -114,19 +115,25 @@ namespace HttpMessage {
     HeadersMap _headers;
     HeadersMap _queryParams;
     std::string _path;
-    std::stringstream _body; // may have RAM issues with large request body
-    std::istream& _request;
+    std::stringstream _body;
+    std::size_t _totalRead;
+    bool _finishParseHeaders;
 
-    HTTPRequest(std::istream& request) :
+    HTTPRequest() :
         _version(HTTPVersion::HTTP_1_1),
         _method(HTTPMethod::GET),
         _headers(),
         _queryParams(),
         _path(),
         _body(),
-        _request(request) {
-      // _request >> *this;
-      parse_request(_request);
+        _totalRead(0),
+        _finishParseHeaders(false) {}
+
+    std::size_t content_length() {
+      auto lenStr = headers_get_field(_headers, "Content-length");
+      if(lenStr.empty())
+        return 0;
+      return stoul(lenStr);
     }
 
     void parse_query_params(const std::string& path) {
@@ -142,11 +149,9 @@ namespace HttpMessage {
       }
     }
 
-    // friend std::istream& operator>>(std::istream& is, HTTPRequest& obj) {
-    void parse_request(std::istream& is) {
+    void parse_headers(std::istream& is) {
       if(is.bad())
         return;
-
       std::string line;
       std::string firstLine;
       // first line is [method path version]
@@ -171,12 +176,15 @@ namespace HttpMessage {
         auto value = Utils::trim_str(trimLine.substr(delimPos + 1));
         _headers[header] = value;
       }
+      _finishParseHeaders = true;
+    }
 
+    void parse_request(std::istream& is) {
+      if(!_finishParseHeaders)
+        parse_headers(is);
       // remaining lines is body
-      while(std::getline(is, line)) {
-        _body << line;
-      }
-      // return is;
+      _body << is.rdbuf();
+      _totalRead += Utils::content_length(is);
     }
 
     std::string to_string() { // for debug only
