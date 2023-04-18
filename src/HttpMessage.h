@@ -10,6 +10,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <fstream>
 
 #include "Utils.h"
 
@@ -73,39 +74,110 @@ namespace HttpMessage {
     HTTPVersion _version;
     HTTPStatusCode _statusCode;
     HeadersMap _headers;
-    std::string _body;
+    // std::string _body;
+    std::ifstream _body;
+    bool _finishWriteHeader;
+    std::streampos _totalWrite;
+    std::size_t _contentLength;
+    std::streampos _currentPos;
 
     HTTPResponse(int clientFd) :
         _version(HTTPVersion::HTTP_1_1),
         _statusCode(HTTPStatusCode::OK),
         _headers(),
-        _body() {}
+        _body(),
+        _finishWriteHeader(false),
+        _totalWrite(0),
+        _contentLength(0),
+        _currentPos(0) {}
 
-    friend std::ostream& operator<<(std::ostream& responseStream, HTTPResponse& response) {
-      // serialize to stream
-      responseStream << version_str(response._version) << " " << std::to_string(response._statusCode) << " " << status_code_str(response._statusCode) << "\r\n";
-      if(response._body.empty())
-        response._headers["Content-Length"] = "0";
-      else
-        response._headers["Content-Length"] = std::to_string(response._body.length());
-      for(const auto& [key, value] : response._headers) {
-        responseStream << key << ": " << value << "\r\n";
+    ~HTTPResponse() {
+      if(_body.is_open())
+        _body.close();
+    }
+
+    // HTTPResponse(const HTTPResponse&) {}
+    // HTTPResponse(HTTPResponse&&) {}
+
+    const HTTPResponse& operator=(HTTPResponse response) { return *this; }
+
+    // friend std::ostream& operator<<(std::ostream& responseStream, HTTPResponse& response) {
+    std::string serialize_header(char* buffer, std::size_t size) {
+      std::stringstream ss;
+      // std::string header;
+      ss << version_str(_version) << " " << std::to_string(_statusCode) << " " << status_code_str(_statusCode) << "\r\n";
+      _headers["Content-Length"] = std::to_string(_contentLength);
+      for(const auto& [key, value] : _headers) {
+        ss << key << ": " << value << "\r\n";
       }
-      responseStream << "\r\n";
-      responseStream << response._body;
-      responseStream << "\r\n";
-      responseStream.flush();
-      return responseStream;
+      ss << "\r\n";
+      // ss.seekg(0, std::ios_base::end);
+      // auto headerSize = ss.tellg();
+      // ss.seekg(0, std::ios_base::beg);
+      // ss.read(buffer, headerSize);
+      _finishWriteHeader = true;
+      auto text = ss.str();
+      text.copy(buffer, text.size());
+      return text;
     }
 
-    HTTPResponse& status_code(HTTPStatusCode statusCode) {
+    std::size_t serialize_reponse(char* buffer, std::size_t bufferSize) {
+      // std::size_t writeCount = 0;
+      std::string headers;
+      if(!_finishWriteHeader)
+        headers = serialize_header(buffer, bufferSize);
+      auto headerSize = headers.length();
+      auto remainBufferBytes = bufferSize - headerSize;
+      if(remainBufferBytes <= 0) {
+        throw std::logic_error("buffer to small");
+        return 0;
+      }
+      if(remainBufferBytes > _contentLength) {
+        // buffer is enough to write whole response
+        _body.read(buffer + headerSize, _contentLength);
+        _totalWrite = _contentLength;
+        return _contentLength + headerSize;
+      }
+      else {
+        if (remainBufferBytes < bufferSize) {
+          _body.read(buffer + headerSize, bufferSize-headerSize);
+          _totalWrite += bufferSize-headerSize;
+          return bufferSize;
+        }
+        else {
+          if (_contentLength - _body.tellg() > bufferSize) {
+            _body.read(buffer, bufferSize);
+            _totalWrite += bufferSize;
+            return bufferSize;
+          }
+          else {
+            _body.read(buffer, _contentLength - _body.tellg());
+            _totalWrite += _contentLength - _body.tellg();
+            return _contentLength - _body.tellg();
+          }
+        }
+      }
+      // serialize to stream
+      // responseStream << _body;
+      // responseStream << "\r\n";
+      // responseStream.flush();
+      // return responseStream;
+    }
+
+    void status_code(HTTPStatusCode statusCode) {
       _statusCode = statusCode;
-      return *this;
+      // return *this;
     }
 
-    HTTPResponse& body(const std::string& content) {
-      _body = std::move(content);
-      return *this;
+    void set_str_body(std::string content) {
+      _body = std::ifstream(content);
+      _contentLength = Utils::content_length(_body);
+      // return *this;
+    }
+
+    void set_file_body(std::string path) {
+      _body.open(path);
+      _contentLength = Utils::content_length(_body);
     }
   };
 
@@ -116,6 +188,7 @@ namespace HttpMessage {
     HeadersMap _queryParams;
     std::string _path;
     std::stringstream _body;
+    std::stringstream _bufferStream;
     std::size_t _totalRead;
     bool _finishParseHeaders;
 
@@ -126,8 +199,11 @@ namespace HttpMessage {
         _queryParams(),
         _path(),
         _body(),
+        _bufferStream(),
         _totalRead(0),
         _finishParseHeaders(false) {}
+
+    ~HTTPRequest() = default;
 
     std::size_t content_length() {
       auto lenStr = headers_get_field(_headers, "Content-length");
@@ -185,6 +261,10 @@ namespace HttpMessage {
       // remaining lines is body
       _body << is.rdbuf();
       _totalRead += Utils::content_length(is);
+    }
+
+    void parse_request() {
+      parse_request(_bufferStream);
     }
 
     std::string to_string() { // for debug only
