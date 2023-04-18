@@ -24,19 +24,20 @@
 using namespace HttpMessage;
 using namespace std::placeholders;
 
-#define THREADPOOL_SIZE 5
+#define THREADPOOL_SIZE 1
 // namespace fs = std::filesystem;
 
-static HttpMessage::HTTPResponse HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req) {
+static void HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& res) {
   std::string sendData = R"JSON({"results": "upload form successfully"})JSON";
   auto len = sendData.length();
-  HTTPResponse res(clientfd);
+  // HTTPResponse res(clientfd);
   res._version = req._version;
-  res.status_code(HTTPStatusCode::OK).body(sendData);
+  res.status_code(HTTPStatusCode::OK);
+  res.set_str_body(sendData);
   res._headers = {{{"Content-Length", std::to_string(len)},
                         {"Connection", "keep-alive"}}};
   res._headers["Content-Type"] = "application/json";
-  return res;
+  // return res;
 }
 
 int main(int argc, char* argv[]) {
@@ -49,10 +50,12 @@ int main(int argc, char* argv[]) {
 
   SimpleServer server(address, port, THREADPOOL_SIZE);
   server.AddHandlers({
-      {"/", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index.html", _1, _2)}},
-      {"/styles.css", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/styles.css", _1, _2)}},
-      {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index-backup.html", _1, _2)}},
-      {"/form", {HTTPMethod::POST, &HandlePostForm}},
+      {"/", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index.html", _1, _2, _3)}},
+      {"/styles.css", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/styles.css", _1, _2, _3)}},
+      {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index-backup.html", _1, _2, _3)}},
+      // {"/form", {HTTPMethod::POST, &HandlePostForm}},
+      {"/abc", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "react-build/OPSWAT.ico", _1, _2, _3)}},
+      {"/static/css/main.b52b0c83.chunk.css", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "react-build/static/css/main.b52b0c83.chunk.css", _1, _2, _3)}}
   });
   server.Start();
   server.Listen();
