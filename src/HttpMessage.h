@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "Utils.h"
 
 namespace HttpMessage {
   using HeadersMap = std::map<std::string, std::string>;
@@ -64,37 +65,23 @@ namespace HttpMessage {
   std::string method_str(const HTTPMethod& method);
   std::string version_str(const HTTPVersion& version);
   std::string status_code_str(const HTTPStatusCode& code);
-  std::size_t content_length(std::istream& iss);
-  std::size_t content_length(std::ostream& oss);
   HTTPVersion str_to_http_version(const std::string& str);
   HTTPMethod str_to_method(const std::string& str);
-  std::vector<std::string> split_str(const std::string& text, const std::string& delimeters);
-  std::string trim_str(const std::string& str);
-
-  static inline std::string extractStream(std::istream& input) {
-    if(input.fail())
-      return "";
-    std::stringstream buffer;
-    buffer << input.rdbuf();
-    return buffer.str();
-  }
 
   struct HTTPResponse {
-    int _clientFd;
     HTTPVersion _version;
     HTTPStatusCode _statusCode;
     HeadersMap _headers;
     std::string _body;
 
-    HTTPResponse(int clientFd) : _clientFd(clientFd), _version(HTTPVersion::HTTP_1_1),
-                                                       _statusCode(HTTPStatusCode::OK),
-                                                       _headers(),
-                                                       _body() {}
+    HTTPResponse(int clientFd) :
+        _version(HTTPVersion::HTTP_1_1),
+        _statusCode(HTTPStatusCode::OK),
+        _headers(),
+        _body() {}
 
     friend std::ostream& operator<<(std::ostream& responseStream, HTTPResponse& response) {
-    // std::ostream& get_formatted_stream(std::ostream& responseStream) {
       // serialize to stream
-      // std::stringstream responseStream;
       responseStream << version_str(response._version) << " " << std::to_string(response._statusCode) << " " << status_code_str(response._statusCode) << "\r\n";
       if(response._body.empty())
         response._headers["Content-Length"] = "0";
@@ -105,9 +92,7 @@ namespace HttpMessage {
       }
       responseStream << "\r\n";
       responseStream << response._body;
-      // auto sendText = extractStream(responseStream);
-      // send(_clientFd, sendText.data(), sendText.length(), 0);
-      // close(_clientFd);
+      responseStream << "\r\n";
       responseStream.flush();
       return responseStream;
     }
@@ -132,13 +117,14 @@ namespace HttpMessage {
     std::stringstream _body; // may have RAM issues with large request body
     std::istream& _request;
 
-    HTTPRequest(std::istream& request) : _version(HTTPVersion::HTTP_1_1),
-                                         _method(HTTPMethod::GET),
-                                         _headers(),
-                                         _queryParams(),
-                                         _path(),
-                                         _body(),
-                                         _request(request) {
+    HTTPRequest(std::istream& request) :
+        _version(HTTPVersion::HTTP_1_1),
+        _method(HTTPMethod::GET),
+        _headers(),
+        _queryParams(),
+        _path(),
+        _body(),
+        _request(request) {
       // _request >> *this;
       parse_request(_request);
     }
@@ -148,7 +134,7 @@ namespace HttpMessage {
       if(startPos == std::string::npos)
         return;
       auto queries = path.substr(startPos + 1);
-      auto pairs = split_str(queries, "&");
+      auto pairs = Utils::split_str(queries, "&");
       for(const auto& pair : pairs) {
         auto delimPos = pair.find("=");
         if(delimPos != std::string::npos)
@@ -165,7 +151,7 @@ namespace HttpMessage {
       std::string firstLine;
       // first line is [method path version]
       if(std::getline(is, firstLine, '\n')) {
-        auto tokens = split_str(firstLine, " ");
+        auto tokens = Utils::split_str(firstLine, " ");
         if(tokens.size() != 3) {
           std::cerr << "Error, invalid http message\n";
           throw std::runtime_error("invalid http message");
@@ -173,16 +159,16 @@ namespace HttpMessage {
         _method = str_to_method(tokens[0]);
         _path = tokens[1];
         parse_query_params(_path);
-        _version = str_to_http_version(trim_str(tokens[2]));
+        _version = str_to_http_version(Utils::trim_str(tokens[2]));
       }
       // next following lines are headers
       while(std::getline(is, line, '\n')) {
-        auto trimLine = trim_str(line);
+        auto trimLine = Utils::trim_str(line);
         if(trimLine.empty())
           break;
         auto delimPos = trimLine.find(':');
         auto header = trimLine.substr(0, delimPos);
-        auto value = trim_str(trimLine.substr(delimPos + 1));
+        auto value = Utils::trim_str(trimLine.substr(delimPos + 1));
         _headers[header] = value;
       }
 

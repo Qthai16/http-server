@@ -105,24 +105,6 @@ std::string HttpMessage::status_code_str(const HttpMessage::HTTPStatusCode& code
   }
 }
 
-std::size_t HttpMessage::content_length(std::istream& iss) {
-  if(iss.bad())
-    return 0;
-  iss.seekg(0, std::ios_base::end);
-  auto size = iss.tellg();
-  iss.seekg(0, std::ios_base::beg);
-  return size;
-}
-
-std::size_t HttpMessage::content_length(std::ostream& oss) {
-  if(oss.bad())
-    return 0;
-  oss.seekp(0, std::ios_base::end);
-  auto size = oss.tellp();
-  oss.seekp(0, std::ios_base::beg);
-  return size;
-}
-
 HttpMessage::HTTPVersion HttpMessage::str_to_http_version(const std::string& str) {
   static std::map<std::string, HttpMessage::HTTPVersion> convertMap = {
       {"HTTP/1.0", HttpMessage::HTTPVersion::HTTP_1_0},
@@ -156,28 +138,4 @@ HttpMessage::HTTPMethod HttpMessage::str_to_method(const std::string& str) {
   if(convertMap.count(copyStr))
     return convertMap.at(copyStr);
   throw std::logic_error("method not support");
-}
-
-std::vector<std::string> HttpMessage::split_str(const std::string& text, const std::string& delimeters) {
-  std::size_t start = 0, end, delimLen = delimeters.length();
-  std::string token;
-  std::vector<std::string> results;
-
-  while((end = text.find(delimeters, start)) != std::string::npos) {
-    token = text.substr(start, end - start);
-    start = end + delimLen;
-    results.push_back(token);
-  }
-
-  results.push_back(text.substr(start));
-  return results;
-}
-
-std::string HttpMessage::trim_str(const std::string& str) {
-  auto trim = [](char c) { return !(std::iscntrl(c) || c == ' '); };
-  auto start = std::find_if(str.cbegin(), str.cend(), trim);
-  auto end = std::find_if(str.rbegin(), str.rend(), trim);
-  if((start == str.cend()) || (end == str.rend()))
-    return "";
-  return std::string(start, end.base());
 }

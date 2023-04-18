@@ -9,3 +9,4 @@ BreakBeforeBraces: Custom
 PointerAlignment: Left
 BraceWrapping: {BeforeElse: true, BeforeCatch: true}
 NamespaceIndentation: All
+BreakConstructorInitializers: AfterColon
