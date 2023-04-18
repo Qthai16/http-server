@@ -39,19 +39,16 @@ struct EpollHandle {
     int _fd;
     std::size_t _length;
     std::size_t _cursor;
-    char _eventBuffer[BUFFER_SIZE]; // limit to 4KB, need mechanism to handle big request body
+    char _eventBuffer[BUFFER_SIZE];
+    HTTPRequest* _request;
 
     EventData() :
-        _fd(0), _length(0), _cursor(0), _eventBuffer(){
-                                            // memset(_eventBuffer, 0, sizeof(_eventBuffer));
-                                        };
+        _fd(0), _length(0), _cursor(0), _eventBuffer(), _request(new HTTPRequest()){};
     EventData(int fd) :
-        _fd(fd), _length(0), _cursor(0), _eventBuffer(){
-                                             // memset(_eventBuffer, 0, sizeof(_eventBuffer));
-                                         };
+        _fd(fd), _length(0), _cursor(0), _eventBuffer(), _request(new HTTPRequest()){};
 
     // ~EventData() { close(_fd); }
-    ~EventData() = default;
+    ~EventData() { delete _request; };
   };
 
   int _epollFd;
@@ -59,7 +56,9 @@ struct EpollHandle {
 
   EpollHandle() :
       _epollFd(-1), events() {}
-  ~EpollHandle() = default;
+  ~EpollHandle() {
+    // close(_epollFd);
+  }
 
   void create_epoll() {
     _epollFd = epoll_create1(0);
@@ -79,6 +78,7 @@ struct EpollHandle {
     event.events = eventType;
     event.data.ptr = (void*)eventData;
     if(epoll_ctl(_epollFd, opt, clientFd, &event) == -1) {
+      // std::cout << "failed to add/modify fd: " << errno << std::endl;
       throw std::runtime_error("failed to add/modify fd");
     }
   }
@@ -157,26 +157,35 @@ private:
 
   void HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr) {
     auto fd = eventDataPtr->_fd;
+    if(eventDataPtr == nullptr) {
+      throw std::runtime_error("something wrong with your logic");
+      return;
+    }
+    auto httpReqPtr = eventDataPtr->_request;
     auto byte_count = recv(fd, eventDataPtr->_eventBuffer, sizeof(eventDataPtr->_eventBuffer), 0);
     if(byte_count > 0) {
       std::stringstream ss;
-      ss << eventDataPtr->_eventBuffer;
-      HTTPRequest req(ss);
-      // req.to_string(); // for debug
-      auto maybeIter = get_registered_path(req._path);
-      if(maybeIter != _handlersMap.end() && maybeIter->second.first == req._method) {
-        // call registered handler
-        auto response = maybeIter->second.second(fd, req); // handler must close fd on completion or error
-        std::stringstream outStream;
-        outStream << response;
-        outStream.seekg(0, std::ios_base::end);
-        auto size = outStream.tellg();
-        outStream.seekg(0, std::ios_base::beg);
-        auto resEventData = new EpollHandle::EventData(fd);
-        outStream.read(resEventData->_eventBuffer, size);
-        resEventData->_length = size;
-        epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
-        delete eventDataPtr;
+      ss.write(eventDataPtr->_eventBuffer, byte_count);
+      httpReqPtr->parse_request(ss);
+      if(httpReqPtr->_totalRead < httpReqPtr->content_length()) { // still have bytes to read
+        epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
+      }
+      else {
+        // matching using regex
+        if(_handlersMap.count(httpReqPtr->_path) && _handlersMap.at(httpReqPtr->_path).first == httpReqPtr->_method) {
+          // call registered handler
+          auto response = _handlersMap.at(httpReqPtr->_path).second(fd, *httpReqPtr); // handler must close fd on completion or error
+          std::stringstream outStream;
+          outStream << response;
+          outStream.seekg(0, std::ios_base::end);
+          auto size = outStream.tellg();
+          outStream.seekg(0, std::ios_base::beg);
+          auto resEventData = new EpollHandle::EventData(fd);
+          outStream.read(resEventData->_eventBuffer, size);
+          resEventData->_length = size;
+          epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
+          delete eventDataPtr;
+        }
       }
     }
     else if((byte_count < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -317,8 +326,7 @@ public:
       socklen_t connAddrSize = sizeof(connAddr);
       auto clientfd = accept4(_serverFd, (struct sockaddr*)&connAddr, &connAddrSize, SOCK_NONBLOCK);
       if(clientfd == -1) {
-        // std::cerr << "Failed to accept incomming connection" << std::endl;
-        // std::this_thread::sleep_for(_sleepTimes);
+        std::this_thread::sleep_for(_sleepTimes); // reduce CPU usage
         continue;
       }
 

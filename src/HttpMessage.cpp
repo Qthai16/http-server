@@ -141,3 +141,19 @@ HttpMessage::HTTPMethod HttpMessage::str_to_method(const std::string& str) {
     return convertMap.at(copyStr);
   throw std::logic_error("method not support");
 }
+
+std::string HttpMessage::headers_get_field(const HttpMessage::HeadersMap& headers, std::string key) {
+  auto toLowerCase = [](std::string str) -> std::string {
+    std::string outStr;
+    std::transform(str.cbegin(), str.cend(), std::back_inserter(outStr), [](char c) {
+      return std::tolower(c);
+    });
+    return outStr;
+  };
+  auto iter = std::find_if(headers.cbegin(), headers.cend(), [key, toLowerCase](auto pair){
+    return toLowerCase(key) == toLowerCase(pair.first);
+  });
+  if (iter != headers.cend())
+    return iter->second;
+  return "";
+}
