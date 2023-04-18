@@ -10,7 +10,7 @@
 #### Build
 ```sh
     cd <project_src> && mkdir build && cd build
-    cmake ..
+    cmake .. -DCMAKE_BUILD_TYPE=Release
     make -j 4
 ```
 #### Run
