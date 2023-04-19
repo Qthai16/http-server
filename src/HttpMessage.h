@@ -1,6 +1,7 @@
 #pragma once
 
 #include <arpa/inet.h>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -10,7 +11,6 @@
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <fstream>
 
 #include "Utils.h"
 
@@ -74,12 +74,10 @@ namespace HttpMessage {
     HTTPVersion _version;
     HTTPStatusCode _statusCode;
     HeadersMap _headers;
-    // std::string _body;
     std::ifstream _body;
     bool _finishWriteHeader;
     std::streampos _totalWrite;
     std::size_t _contentLength;
-    std::streampos _currentPos;
 
     HTTPResponse(int clientFd) :
         _version(HTTPVersion::HTTP_1_1),
@@ -88,8 +86,7 @@ namespace HttpMessage {
         _body(),
         _finishWriteHeader(false),
         _totalWrite(0),
-        _contentLength(0),
-        _currentPos(0) {}
+        _contentLength(0) {}
 
     ~HTTPResponse() {
       if(_body.is_open())
@@ -104,7 +101,6 @@ namespace HttpMessage {
     // friend std::ostream& operator<<(std::ostream& responseStream, HTTPResponse& response) {
     std::string serialize_header(char* buffer, std::size_t size) {
       std::stringstream ss;
-      // std::string header;
       ss << version_str(_version) << " " << std::to_string(_statusCode) << " " << status_code_str(_statusCode) << "\r\n";
       _headers["Content-Length"] = std::to_string(_contentLength);
       for(const auto& [key, value] : _headers) {
@@ -115,14 +111,13 @@ namespace HttpMessage {
       // auto headerSize = ss.tellg();
       // ss.seekg(0, std::ios_base::beg);
       // ss.read(buffer, headerSize);
-      _finishWriteHeader = true;
       auto text = ss.str();
       text.copy(buffer, text.size());
+      _finishWriteHeader = true;
       return text;
     }
 
     std::size_t serialize_reponse(char* buffer, std::size_t bufferSize) {
-      // std::size_t writeCount = 0;
       std::string headers;
       if(!_finishWriteHeader)
         headers = serialize_header(buffer, bufferSize);
@@ -139,40 +134,34 @@ namespace HttpMessage {
         return _contentLength + headerSize;
       }
       else {
-        if (remainBufferBytes < bufferSize) {
-          _body.read(buffer + headerSize, bufferSize-headerSize);
-          _totalWrite += bufferSize-headerSize;
+        if(remainBufferBytes < bufferSize) {
+          // body first chunk
+          _body.read(buffer + headerSize, bufferSize - headerSize);
+          _totalWrite += bufferSize - headerSize;
           return bufferSize;
         }
         else {
-          if (_contentLength - _body.tellg() > bufferSize) {
+          if(_contentLength - _body.tellg() > bufferSize) {
             _body.read(buffer, bufferSize);
             _totalWrite += bufferSize;
             return bufferSize;
           }
-          else {
+          else { // last chunk
             _body.read(buffer, _contentLength - _body.tellg());
             _totalWrite += _contentLength - _body.tellg();
             return _contentLength - _body.tellg();
           }
         }
       }
-      // serialize to stream
-      // responseStream << _body;
-      // responseStream << "\r\n";
-      // responseStream.flush();
-      // return responseStream;
     }
 
     void status_code(HTTPStatusCode statusCode) {
       _statusCode = statusCode;
-      // return *this;
     }
 
     void set_str_body(std::string content) {
       _body = std::ifstream(content);
       _contentLength = Utils::content_length(_body);
-      // return *this;
     }
 
     void set_file_body(std::string path) {
@@ -234,7 +223,7 @@ namespace HttpMessage {
       if(std::getline(is, firstLine, '\n')) {
         auto tokens = Utils::split_str(firstLine, " ");
         if(tokens.size() != 3) {
-          std::cerr << "Error, invalid http message\n";
+          std::cerr << "Error, invalid http message" << std::endl;
           throw std::runtime_error("invalid http message");
         }
         _method = str_to_method(tokens[0]);
