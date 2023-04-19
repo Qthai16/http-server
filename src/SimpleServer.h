@@ -3,7 +3,6 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -32,21 +31,17 @@ using namespace std::chrono;
 using namespace std::chrono_literals;
 using namespace HttpMessage;
 
-namespace fs = std::filesystem;
-
 struct EpollHandle {
   struct EventData {
     int _fd;
-    std::size_t _length;
-    std::size_t _cursor;
     char _eventBuffer[BUFFER_SIZE];
     HTTPRequest* _request;
     HTTPResponse* _response;
 
     EventData() :
-        _fd(0), _length(0), _cursor(0), _eventBuffer(), _request(new HTTPRequest()), _response(nullptr){};
+        _fd(0), _eventBuffer(), _request(new HTTPRequest()), _response(nullptr){};
     EventData(int fd) :
-        _fd(fd), _length(0), _cursor(0), _eventBuffer(), _request(new HTTPRequest()), _response(new HTTPResponse(fd)){};
+        _fd(fd), _eventBuffer(), _request(new HTTPRequest()), _response(new HTTPResponse(fd)){};
 
     // ~EventData() { close(_fd); }
     ~EventData() {
@@ -166,7 +161,7 @@ private:
   void HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr) {
     auto fd = eventDataPtr->_fd;
     if(eventDataPtr == nullptr) {
-      throw std::runtime_error("something wrong with your logic");
+      throw std::logic_error("sth went wrong with your logic, event data is nullptr");
       return;
     }
     auto httpReqPtr = eventDataPtr->_request;
@@ -177,7 +172,7 @@ private:
       if(httpReqPtr->_totalRead < httpReqPtr->content_length()) { // still have bytes to read
         epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
       }
-      else {
+      else { // read done
         auto matchIter = get_registered_path(httpReqPtr->_path); // exact match first
         if(matchIter == _handlersMap.end()) {
           matchIter = get_registered_path(httpReqPtr->_path, false);
@@ -186,28 +181,13 @@ private:
           // call registered handler
           auto resEventData = new EpollHandle::EventData(fd);
           auto httpResPtr = resEventData->_response;
-          // auto httpResPtr = eventDataPtr->_response;
           matchIter->second.second(fd, *httpReqPtr, *httpResPtr); // handler must close fd on completion or error
-          // std::stringstream outStream;
-          // outStream << response;
+          // serialize first part of response, the rest of body will be handle in HandleWriteEvent
           httpResPtr->serialize_reponse(resEventData->_eventBuffer, BUFFER_SIZE);
-          // eventDataPtr->_length = httpResPtr->_contentLength;
-          resEventData->_length = BUFFER_SIZE;
-          // outStream.seekp(0, std::ios_base::end);
-          // auto size = outStream.tellp();
-          // outStream.seekp(0, std::ios_base::beg);
-          // auto resEventData = new EpollHandle::EventData(fd);
-          // outStream.read(resEventData->_eventBuffer, BUFFER_SIZE);
-          // resEventData->_length = BUFFER_SIZE;
-          // if (httpResPtr->_totalWrite < httpResPtr->_contentLength) {
-          //   epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_ADD, resEventData);
-          //   // epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, eventDataPtr);
-          // }
-          // else {
-            epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
-          // }
+          epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
           delete eventDataPtr;
         }
+        // handle not registered path or method here
       }
     }
     else if((byte_count < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -226,15 +206,10 @@ private:
 
   void HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr) {
     auto fd = eventDataPtr->_fd;
-    // auto totalLen = eventDataPtr->_length;
     auto sendBytes = send(fd, eventDataPtr->_eventBuffer, sizeof(eventDataPtr->_eventBuffer), 0);
     if(sendBytes >= 0) {
-      // if(sendBytes < totalLen) {
-      if (eventDataPtr->_response->_totalWrite < eventDataPtr->_response->_contentLength) {
-        // eventDataPtr->_cursor += sendBytes;
-        // eventDataPtr->_length -= sendBytes;
+      if(eventDataPtr->_response->_totalWrite < eventDataPtr->_response->_contentLength) { // still have bytes to send
         eventDataPtr->_response->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
-        eventDataPtr->_length = BUFFER_SIZE;
         epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
       }
       else { // write complete, reuse this fd for read event
@@ -278,9 +253,14 @@ private:
 
 public:
   static inline std::map<std::string, std::string> _mimeTypes = {
+      {".js", "text/javascript"},
       {".txt", "text/plain"},
       {".html", "text/html"},
       {".htm", "text/html"},
+      {".svg", "image/svg+xml"},
+      {".png", "image/png"},
+      {".jpg", "image/jpeg"},
+      {".jpeg", "image/jpeg"},
       {".css", "text/css"}};
 
 public:
@@ -378,54 +358,5 @@ public:
   }
   void AddHandlers(URLFormat path, HttpMessage::HTTPMethod method, HandlerFunction fn) {
     _handlersMap[path] = {method, fn};
-  }
-
-  // void SendResourceNotFound(int clientfd) {
-  //   HTTPResponse response(clientfd);
-  //   std::string sendData = R"JSON({"errors": "resource not found"})JSON";
-  //   response.status_code(HTTPStatusCode::NotFound).body(sendData);
-  //   response._headers = HeadersMap{{{"Content-Type", "application/json"},
-  //                                   {"Connection", "keep-alive"}}};
-  // }
-
-  static void SendStaticFile(std::string path, int clientfd, const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& response) {
-    // HTTPResponse response(clientfd);
-    response._version = req._version;
-    response._headers["Connection"] = "keep-alive";
-
-    if(!fs::exists(path)) {
-      // send 404 not found
-      std::string sendData = R"JSON({"errors": "resource not found"})JSON";
-      response.status_code(HTTPStatusCode::NotFound);
-      response.set_str_body(sendData);
-      response._headers = {{
-          {"Content-Type", "application/json"},
-      }};
-      return;
-    }
-    // std::ifstream file(path);
-    // if(!file.is_open()) {
-    //   // send internal error
-    //   std::string sendData = R"JSON({"errors": "failed to open file"})JSON";
-    //   response.status_code(HTTPStatusCode::InternalServerError);
-    //   response.set_str_body(sendData);
-    //   response._headers = {{
-    //       {"Content-Type", "application/json"},
-    //   }};
-    //   return response;
-    // }
-
-    auto extension = fs::path(path).extension().string();
-    if(_mimeTypes.count(extension)) {
-      response._headers["Content-Type"] = _mimeTypes.at(extension);
-    }
-    else {
-      response._headers["Content-Type"] = "application/octet-stream"; // default for others
-    }
-    // response.status_code(HTTPStatusCode::OK).body(Utils::extract_stream(file));
-    response.status_code(HTTPStatusCode::OK);
-    response.set_file_body(path);
-    // std::cout << Utils::extract_stream(file) << std::endl;
-    return;
   }
 };
