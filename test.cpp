@@ -29,7 +29,7 @@ namespace fs = std::filesystem;
 
 static void SendStaticFile(std::string path, int clientfd, const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& response) {
   response._version = req._version;
-  response._headers["Connection"] = "keep-alive";
+  response._headers["Connection"] = "Close";
 
   if(!fs::exists(path)) {
     // send 404 not found
@@ -113,16 +113,16 @@ int main(int argc, char* argv[]) {
   auto port = stoi(std::string{argv[2]});
 
   SimpleServer server(address, port, THREADPOOL_SIZE);
-  // server.AddHandlers({
-  //     {"/", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index.html", _1, _2, _3)}},
-  //     {"/styles.css", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/styles.css", _1, _2, _3)}},
-  //     {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "static/index-backup.html", _1, _2, _3)}},
-  //     // {"/form", {HTTPMethod::POST, &HandlePostForm}},
-  //     {"/abc", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "react-build/OPSWAT.ico", _1, _2, _3)}},
-  //     {"/static/css/main.b52b0c83.chunk.css", {HTTPMethod::GET, std::bind(&SimpleServer::SendStaticFile, "react-build/static/css/main.b52b0c83.chunk.css", _1, _2, _3)}}
-  // });
-  auto staticResMap = ServeStaticResources("react-build");
-  server.AddHandlers(staticResMap);
+  server.AddHandlers({
+      {"/", {HTTPMethod::GET, std::bind(SendStaticFile, "static/index.html", _1, _2, _3)}},
+      {"/styles.css", {HTTPMethod::GET, std::bind(SendStaticFile, "static/styles.css", _1, _2, _3)}},
+      {"^/(simple)?test$", {HTTPMethod::GET, std::bind(SendStaticFile, "static/index-backup.html", _1, _2, _3)}},
+      // {"/form", {HTTPMethod::POST, &HandlePostForm}},
+      {"/abc", {HTTPMethod::GET, std::bind(SendStaticFile, "react-build/OPSWAT.ico", _1, _2, _3)}},
+      {"/static/css/main.b52b0c83.chunk.css", {HTTPMethod::GET, std::bind(SendStaticFile, "react-build/static/css/main.b52b0c83.chunk.css", _1, _2, _3)}}
+  });
+  // auto staticResMap = ServeStaticResources("react-build");
+  server.AddHandlers("/maybe_crash", HTTPMethod::GET, std::bind(SendStaticFile, "static/PXE_logo.8cb9b435.svg", _1, _2, _3));
   server.Start();
   server.Listen();
   return 0;
