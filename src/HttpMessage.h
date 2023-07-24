@@ -148,7 +148,7 @@ namespace HttpMessage {
           }
           else { // last chunk
             _body.read(buffer, _contentLength - _body.tellg());
-            _totalWrite += _contentLength - _body.tellg();
+            _totalWrite = _contentLength;
             return _contentLength - _body.tellg();
           }
         }
