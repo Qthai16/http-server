@@ -21,3 +21,9 @@
 ```sh
    ./benchmark.sh 2>&1 | tee benchmark-result.txt
 ```
+
+#### openssl: symmetric AES256-CFB128 encryption
+#### base64 encode/decode
+#### save private key/public key in source code using runtime xor/compile xor
+#### TODO: implement HTTP multipart/form-data
+#### TODO: implement websocket upgrading
