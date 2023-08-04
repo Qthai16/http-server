@@ -20,6 +20,7 @@
 
 #include "src/HttpMessage.h"
 #include "src/SimpleServer.h"
+#include "src/SSLUtils.h"
 
 using namespace HttpMessage;
 using namespace std::placeholders;

@@ -219,8 +219,8 @@ void SimpleServer::HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::Event
     else { // write complete
     // if keep alive, reuse this fd for read event
     // else close it
-    //   auto reqEventData = new EpollHandle::EventData(fd);
-    //   epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, reqEventData);
+      // auto reqEventData = new EpollHandle::EventData(fd);
+      // epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, reqEventData);
       epollHandle.delete_fd(fd);
       close(fd);
       delete eventDataPtr;

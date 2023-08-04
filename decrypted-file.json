@@ -1,0 +1,1208 @@
+{
+    "Hardware_ID": "6JS0TR2",
+    "action_result": 1,
+    "agent_token": "E1282B2DEED03D799E5E9D7DD93C1C6003092309",
+    "agent_type": 0,
+    "agent_version": "7.6.2307.320",
+    "device_id": "6JS0TR2",
+    "explanation_result": "",
+    "hostname": "WE11-D2965",
+    "oesis_version": "4.3.3619.0",
+    "scan_time": "2023-07-28T08:06:31Z",
+    "sdk_version": "3.42.4.3",
+    "sdp_version": "1.3.1.641",
+    "soh": {
+        "OESIS": {
+            "Antiphishing": [
+                {
+                    "AR_ID": "41",
+                    "Enabled": 1,
+                    "ID": 41,
+                    "IsEnabledSupported": 1,
+                    "PRODUCT_NAME": "Google Chrome",
+                    "Status": 2,
+                    "VENDOR": "Google Inc.",
+                    "VERSION": "115.0.5790.110",
+                    "default": 1
+                },
+                {
+                    "Enabled": 1,
+                    "ID": 3103,
+                    "IsEnabledSupported": 1,
+                    "PRODUCT_NAME": "Microsoft Edge",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "115.0.1901.188",
+                    "default": 0
+                },
+                {
+                    "Enabled": 1,
+                    "ID": 102,
+                    "IsEnabledSupported": 1,
+                    "PRODUCT_NAME": "Internet Explorer (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "11.1.22621.0",
+                    "default": 0
+                },
+                {
+                    "Enabled": 1,
+                    "ID": 3039,
+                    "IsEnabledSupported": 1,
+                    "PRODUCT_NAME": "Mozilla Firefox (x64)",
+                    "Status": 1,
+                    "VENDOR": "Mozilla Corporation",
+                    "VERSION": "115.0.2",
+                    "default": 0
+                },
+                {
+                    "Enabled": 1,
+                    "ID": 103,
+                    "IsEnabledSupported": 1,
+                    "PRODUCT_NAME": "Internet Explorer (x86)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "11.1.22621.0",
+                    "default": 0
+                }
+            ],
+            "Antivirus": [
+                {
+                    "Data File DateTime": "2023/7/28 0:0:0",
+                    "Data File Engine Version": "",
+                    "Data File Version": "2023.07.28",
+                    "ID": 3194,
+                    "IgnoredThreats": [],
+                    "IsDataFileDateTimeSupported": 1,
+                    "IsLastFullScanTimeSupported": 0,
+                    "IsRunningSupported": 1,
+                    "Last Full Scan Time": "",
+                    "PRODUCT_NAME": "Microsoft Defender ATP",
+                    "Running": 1,
+                    "Status": 2,
+                    "Threats": [],
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.22621.1992"
+                },
+                {
+                    "Data File DateTime": "2023/7/28 7:32:49",
+                    "Data File Engine Version": "1.1.23060.1005",
+                    "Data File Version": "1.393.1641.0",
+                    "ID": 477,
+                    "IgnoredThreats": [],
+                    "IsDataFileDateTimeSupported": 1,
+                    "IsLastFullScanTimeSupported": 1,
+                    "IsRunningSupported": 1,
+                    "Last Full Scan Time": "2023/5/15 3:47:2",
+                    "PRODUCT_NAME": "Windows Defender",
+                    "Running": 1,
+                    "Status": 2,
+                    "Threats": [],
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "4.18.23050.9"
+                }
+            ],
+            "BackupClient": [
+                {
+                    "ID": 936,
+                    "IsLastBackupTimeSupported": 1,
+                    "Is_Cloud_Storage": 0,
+                    "Last Backup Time": "",
+                    "PRODUCT_NAME": "Windows File History",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.22621.1"
+                },
+                {
+                    "AR_ID": "842",
+                    "ID": 842,
+                    "IsLastBackupTimeSupported": 1,
+                    "Is_Cloud_Storage": 1,
+                    "Last Backup Time": "",
+                    "PRODUCT_NAME": "Microsoft OneDrive",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "23.137.0702.0001"
+                },
+                {
+                    "ID": 935,
+                    "IsLastBackupTimeSupported": 1,
+                    "Is_Cloud_Storage": 0,
+                    "Last Backup Time": "",
+                    "PRODUCT_NAME": "Windows Backup and Restore",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.22621.1"
+                }
+            ],
+            "Browser": [
+                {
+                    "AR_ID": "41",
+                    "ID": 41,
+                    "PRODUCT_NAME": "Google Chrome",
+                    "Status": 2,
+                    "VENDOR": "Google Inc.",
+                    "VERSION": "115.0.5790.110",
+                    "plugins": [
+                        {
+                            "Default_installed": 0,
+                            "ID": "aapbdbdomjkkjkaonfhkkikfgjllcleb",
+                            "name": "Google Translate",
+                            "type": "extension",
+                            "version": "2.0.13"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "ahfgeienlihckogmohjhadlkjgocpleb",
+                            "name": "Web Store",
+                            "type": "extension",
+                            "version": "0.2"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "lmjegmlicamnimmfhcmpkclmigmmcbeh",
+                            "name": "Application Launcher For Drive (by Google)",
+                            "type": "extension",
+                            "version": "3.9"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "efaidnbmnnnibpcajpcglclefindmkaj",
+                            "name": "Adobe Acrobat: PDF edit, convert, sign tools",
+                            "type": "extension",
+                            "version": "23.7.1.0"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "nkeimhogjdpnpccoofpliimaahmaaome",
+                            "name": "Google Hangouts",
+                            "type": "extension",
+                            "version": "1.3.21"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "neajdppkdcdipfabeoofebfddakdcjhd",
+                            "name": "Google Network Speech",
+                            "type": "extension",
+                            "version": "1.0"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "glnpjglilkicbckjpbgcfkogebgllemb",
+                            "name": "Okta Browser Plugin",
+                            "type": "extension",
+                            "version": "6.20.0"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "gppongmhjkpfnbhagpmjfkannfbllamg",
+                            "name": "Wappalyzer - Technology profiler",
+                            "type": "extension",
+                            "version": "6.10.63"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "inomeogfingihgjfjlpeplalcfajhgai",
+                            "name": "Chrome Remote Desktop",
+                            "type": "extension",
+                            "version": "2.1"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "kbfnbcaeplbcioakkpcpgfkobkghlhen",
+                            "name": "Grammarly: Grammar Checker and AI Writing App",
+                            "type": "extension",
+                            "version": "14.1117.0"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "ghbmnnjooekpmoecnnnilnnbdlolhkhi",
+                            "name": "Google Docs Offline",
+                            "type": "extension",
+                            "version": "1.65.0"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+                            "name": "Chrome PDF Viewer",
+                            "type": "extension",
+                            "version": "1"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "nmmhkkegccagdldgiimedpiccmgmieda",
+                            "name": "Chrome Web Store Payments",
+                            "type": "extension",
+                            "version": "1.0.0.6"
+                        }
+                    ]
+                },
+                {
+                    "ID": 3103,
+                    "PRODUCT_NAME": "Microsoft Edge",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "115.0.1901.188",
+                    "plugins": [
+                        {
+                            "Default_installed": 1,
+                            "ID": "fikbjbembnmfhppjfnmfkahdhfohhjmg",
+                            "name": "Media Internals Services Extension",
+                            "type": "extension",
+                            "version": "2.0.0"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "ncoafaeidnkeafiehpkfoeklhajkpgij",
+                            "name": "Okta Browser Plugin",
+                            "type": "toolbar",
+                            "version": "6.20.0"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "ncbjelpjchkpbikbpkcchkhkblodoama",
+                            "name": "WebRTC Internals Extension",
+                            "type": "extension",
+                            "version": "2.0.2"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "nkeimhogjdpnpccoofpliimaahmaaome",
+                            "name": "WebRTC Extension",
+                            "type": "extension",
+                            "version": "1.3.21"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "lhdfcdjgpfaballnmjbinbbdgljcbmdp",
+                            "name": "Translate Item",
+                            "type": "extension",
+                            "version": "1.3.1"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "dgiklkfkllikcanfonkcabmbdfmgleag",
+                            "name": "Microsoft Clipboard Extension",
+                            "type": "extension",
+                            "version": "1.0"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "jmjflgjpcpepeafmmgdpfkogkghcpiha",
+                            "name": "Edge relevant text changes",
+                            "type": "extension",
+                            "version": "1.1.3"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "jdiccldimpdaibmpdkjnbmckianbfold",
+                            "name": "Microsoft Voices",
+                            "type": "extension",
+                            "version": "1.0"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "iglcjdemknebjbklcgkfaebgojjphkec",
+                            "name": "Microsoft Store",
+                            "type": "extension",
+                            "version": "0.2"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "ahfgeienlihckogmohjhadlkjgocpleb",
+                            "name": "Web Store",
+                            "type": "extension",
+                            "version": "0.2"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+                            "name": "Microsoft Edge PDF Viewer",
+                            "type": "extension",
+                            "version": "1"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "ihmafllikibpmigkcoadcmckbfhibefp",
+                            "name": "Edge Feedback",
+                            "type": "extension",
+                            "version": "1.0.0.1"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "epdpgaljfdjmcemiaplofbiholoaepem",
+                            "name": "Suppress Consent Prompt",
+                            "type": "extension",
+                            "version": "1.0.0"
+                        }
+                    ]
+                },
+                {
+                    "ID": 102,
+                    "PRODUCT_NAME": "Internet Explorer (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "11.1.22621.0"
+                },
+                {
+                    "ID": 3039,
+                    "PRODUCT_NAME": "Mozilla Firefox (x64)",
+                    "Status": 1,
+                    "VENDOR": "Mozilla Corporation",
+                    "VERSION": "115.0.2",
+                    "plugins": [
+                        {
+                            "Default_installed": 1,
+                            "ID": "pictureinpicture@mozilla.org",
+                            "name": "Picture-In-Picture",
+                            "type": "extension",
+                            "version": "1.0.0"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "screenshots@mozilla.org",
+                            "name": "Firefox Screenshots",
+                            "type": "extension",
+                            "version": "39.0.1"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "webcompat-reporter@mozilla.org",
+                            "name": "WebCompat Reporter",
+                            "type": "extension",
+                            "version": "1.5.1"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "webcompat@mozilla.org",
+                            "name": "Web Compatibility Interventions",
+                            "type": "extension",
+                            "version": "115.0.0"
+                        },
+                        {
+                            "name": "System theme â€” auto",
+                            "type": "theme",
+                            "version": "1.3"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "addons-search-detection@mozilla.com",
+                            "name": "Add-ons Search Detection",
+                            "type": "extension",
+                            "version": "2.0.0"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "google@search.mozilla.org",
+                            "name": "Google",
+                            "type": "extension",
+                            "version": "1.4"
+                        },
+                        {
+                            "name": "Wikipedia (hy)",
+                            "type": "extension",
+                            "version": "1.3"
+                        },
+                        {
+                            "name": "Cá»‘c Cá»‘c",
+                            "type": "extension",
+                            "version": "1.1"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "ddg@search.mozilla.org",
+                            "name": "DuckDuckGo",
+                            "type": "extension",
+                            "version": "1.4"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "firefox-compact-light@mozilla.org",
+                            "name": "Light",
+                            "type": "theme",
+                            "version": "1.2"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "firefox-compact-dark@mozilla.org",
+                            "name": "Dark",
+                            "type": "theme",
+                            "version": "1.2"
+                        },
+                        {
+                            "Default_installed": 1,
+                            "ID": "firefox-alpenglow@mozilla.org",
+                            "name": "Firefox Alpenglow",
+                            "type": "theme",
+                            "version": "1.4"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "langpack-en-US@firefox.mozilla.org",
+                            "name": "Language: English (US)",
+                            "type": "locale",
+                            "version": "115.0.20230710.165010"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "87677a2c52b84ad3a151a4a72f5bd3c4@jetpack",
+                            "name": "Grammarly: Grammar Checker and Writing App",
+                            "type": "extension",
+                            "version": "8.906.0"
+                        },
+                        {
+                            "Default_installed": 0,
+                            "ID": "momentum@momentumdash.com",
+                            "name": "Momentum",
+                            "type": "extension",
+                            "version": "2.8.10"
+                        }
+                    ]
+                },
+                {
+                    "ID": 103,
+                    "PRODUCT_NAME": "Internet Explorer (x86)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "11.1.22621.0"
+                }
+            ],
+            "Cleaner_Optimizer": [],
+            "Cloud_Storage": [
+                {
+                    "ID": 3101,
+                    "PRODUCT_NAME": "Google Drive File Stream",
+                    "Status": 1,
+                    "VENDOR": "Google Inc.",
+                    "VERSION": "78.0.1.0"
+                },
+                {
+                    "AR_ID": "842",
+                    "ID": 842,
+                    "Is_Cloud_Storage": 1,
+                    "PRODUCT_NAME": "Microsoft OneDrive",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "23.137.0702.0001"
+                }
+            ],
+            "CustomCheck": [
+                {
+                    "hash": "4c1993230693c024a99a7a3a746815a0",
+                    "last_run": "2023-07-28T07:33:07Z",
+                    "last_update": "",
+                    "msg": "[7/28/2023 2:30:46 PM] > Chrome settings are CORRECT [7/28/2023 2:30:46 PM] > FAILED TO SET EDGE HOMEPAGE [7/28/2023 2:30:46 PM] > Set Firefox homepage SUCCESS [7/28/2023 2:30:46 PM] > Set Firefox homepage FAILURE [7/28/2023 2:33:03 PM] > PLEASE REBOOT THE WINDOWS TO COMPLETE THE WINDOWS UPDATE ! [7/28/2023 2:33:04 PM] > NinjaRMMAgent has been installed !  Script Completed !",
+                    "status": 1
+                }
+            ],
+            "Data_Loss_Prevention": [],
+            "Developer_Tool": [],
+            "Firewall": [
+                {
+                    "Enabled": 0,
+                    "ID": 288,
+                    "IsEnabledSupported": 0,
+                    "PRODUCT_NAME": "Windows Firewall",
+                    "Status": 2,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.22621.1635"
+                }
+            ],
+            "Geofencing": {},
+            "Hard_Disk_Encryption": {
+                "SystemVolume": "C:\\Windows\\system32",
+                "isGenericSystemVolumeEncrypted": false,
+                "products": [
+                    {
+                        "Encrypted_Volumes": {
+                            "C:": {
+                                "Decryption_In_Progress": {
+                                    "ENCRYPTIONPROGRESS": 0
+                                },
+                                "Encryption_Algorithm": {
+                                    "Algorithm": "aes",
+                                    "Key_Length": 128,
+                                    "Mode_of_Operation": 0
+                                },
+                                "Encryption_In_Progress": {
+                                    "ENCRYPTIONPROGRESS": 0
+                                },
+                                "Encryption_State": {
+                                    "ENCRYPTIONSTATE": 2
+                                },
+                                "Location_Encryptable": true,
+                                "Location_Type": "physical"
+                            },
+                            "E:": {
+                                "Decryption_In_Progress": {
+                                    "ENCRYPTIONPROGRESS": 0
+                                },
+                                "Encryption_Algorithm": {
+                                    "Algorithm": "aes",
+                                    "Key_Length": 128,
+                                    "Mode_of_Operation": 0
+                                },
+                                "Encryption_In_Progress": {
+                                    "ENCRYPTIONPROGRESS": 0
+                                },
+                                "Encryption_State": {
+                                    "ENCRYPTIONSTATE": 2
+                                },
+                                "Location_Encryptable": true,
+                                "Location_Type": "physical"
+                            },
+                            "F:": {
+                                "Decryption_In_Progress": {
+                                    "ENCRYPTIONPROGRESS": 0
+                                },
+                                "Encryption_Algorithm": {
+                                    "Algorithm": "aes",
+                                    "Key_Length": 128,
+                                    "Mode_of_Operation": 0
+                                },
+                                "Encryption_In_Progress": {
+                                    "ENCRYPTIONPROGRESS": 0
+                                },
+                                "Encryption_State": {
+                                    "ENCRYPTIONSTATE": 2
+                                },
+                                "Location_Encryptable": true,
+                                "Location_Type": "physical"
+                            },
+                            "G:": {
+                                "Decryption_In_Progress": {
+                                    "ENCRYPTIONPROGRESS": 0
+                                },
+                                "Encryption_Algorithm": {
+                                    "Algorithm": "aes",
+                                    "Key_Length": 128,
+                                    "Mode_of_Operation": 0
+                                },
+                                "Encryption_In_Progress": {
+                                    "ENCRYPTIONPROGRESS": 0
+                                },
+                                "Encryption_State": {
+                                    "ENCRYPTIONSTATE": 2
+                                },
+                                "Location_Encryptable": true,
+                                "Location_Type": "physical"
+                            },
+                            "H:": {
+                                "Decryption_In_Progress": {
+                                    "ENCRYPTIONPROGRESS": 0
+                                },
+                                "Encryption_Algorithm": {
+                                    "Algorithm": "aes",
+                                    "Key_Length": 128,
+                                    "Mode_of_Operation": 0
+                                },
+                                "Encryption_In_Progress": {
+                                    "ENCRYPTIONPROGRESS": 0
+                                },
+                                "Encryption_State": {
+                                    "ENCRYPTIONSTATE": 2
+                                },
+                                "Location_Encryptable": true,
+                                "Location_Type": "physical"
+                            }
+                        },
+                        "EncryptionStateSupported": 0,
+                        "ID": 882,
+                        "PRODUCT_NAME": "BitLocker Drive Encryption",
+                        "VENDOR": "Microsoft Corporation",
+                        "VERSION": "10.0.22621.1"
+                    }
+                ]
+            },
+            "Instant_Messegener": [
+                {
+                    "ID": 1405,
+                    "PRODUCT_NAME": "Zalo",
+                    "Status": 2,
+                    "VENDOR": "VNG Corporation",
+                    "VERSION": "23.06.02"
+                },
+                {
+                    "ID": 1056,
+                    "PRODUCT_NAME": "Microsoft Lync",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.0.16529.20182"
+                },
+                {
+                    "ID": 3089,
+                    "PRODUCT_NAME": "Microsoft Teams",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "1.6.00.18681"
+                }
+            ],
+            "Media_Player": [],
+            "Operating_System_Info": [
+                {
+                    "ActiveUserSession": 0,
+                    "Domain": "",
+                    "Edition_ID": 4,
+                    "Last_Reboot": 1690165210,
+                    "Last_Windows_Update_Check": "",
+                    "LockScreenTimeout": 900,
+                    "MachineType": 0,
+                    "Network_adapters": {
+                        "Network_adapter 1": {
+                            "IPV4": "192.168.94.1",
+                            "IPV6": "fe80::bb8f:b4f3:9532:5e72",
+                            "MAC": "00:50:56:C0:00:01",
+                            "adapter_enabled": true,
+                            "description": "VMware Virtual Ethernet Adapter for VMnet1",
+                            "dhcp_enabled": false,
+                            "media_state": "connected",
+                            "subnet_masks": [
+                                "255.255.255.0",
+                                "64"
+                            ]
+                        },
+                        "Network_adapter 2": {
+                            "IPV4": "192.168.154.1",
+                            "IPV6": "fe80::75fc:edee:a6bd:af3a",
+                            "MAC": "00:50:56:C0:00:08",
+                            "adapter_enabled": true,
+                            "description": "VMware Virtual Ethernet Adapter for VMnet8",
+                            "dhcp_enabled": false,
+                            "media_state": "connected",
+                            "subnet_masks": [
+                                "255.255.255.0",
+                                "64"
+                            ]
+                        },
+                        "Network_adapter 3": {
+                            "IPV4": "",
+                            "IPV6": "",
+                            "MAC": "00:E0:4C:41:67:D2",
+                            "adapter_enabled": false,
+                            "description": "Realtek USB GbE Family Controller",
+                            "dhcp_enabled": true,
+                            "media_state": "media_disconnected"
+                        },
+                        "Network_adapter 4": {
+                            "IPV4": "",
+                            "IPV6": "",
+                            "MAC": "D8:9C:67:AC:CB:5B",
+                            "adapter_enabled": false,
+                            "description": "Qualcomm QCA9565 802.11b/g/n Wireless Adapter",
+                            "dhcp_enabled": true,
+                            "media_state": "media_disconnected"
+                        },
+                        "Network_adapter 5": {
+                            "IPV4": "10.40.50.22",
+                            "IPV6": "fe80::950b:9da3:8dd5:7ae6",
+                            "MAC": "8C:EC:4B:90:F9:23",
+                            "adapter_enabled": true,
+                            "default_gateways": [
+                                "10.40.50.1"
+                            ],
+                            "description": "Realtek PCIe GbE Family Controller",
+                            "dhcp_enabled": true,
+                            "dhcp_lease_expires": "1690616569",
+                            "dhcp_lease_obtained": "1690530169",
+                            "dhcp_server_address": "10.40.40.21",
+                            "dns_server_addresses": [
+                                "10.40.40.21",
+                                "10.40.40.22"
+                            ],
+                            "media_state": "connected",
+                            "subnet_masks": [
+                                "255.255.254.0",
+                                "64"
+                            ]
+                        },
+                        "Network_adapter 6": {
+                            "IPV4": "",
+                            "IPV6": "",
+                            "MAC": "D8:9C:67:AC:CB:5C",
+                            "adapter_enabled": false,
+                            "description": "Bluetooth Device (Personal Area Network)",
+                            "dhcp_enabled": true,
+                            "media_state": "media_disconnected"
+                        }
+                    },
+                    "OS_Architecture": "64-bit",
+                    "OS_Family": "Windows",
+                    "OS_Id": "76",
+                    "OS_Language": "English (United States)",
+                    "OS_Missing_Patches": [
+                        {
+                            "kb_id": "2267602",
+                            "optional": false
+                        },
+                        {
+                            "kb_id": "5028254",
+                            "optional": true
+                        }
+                    ],
+                    "OS_Name": "Microsoft Windows 11 Enterprise",
+                    "OS_Revision": "1992",
+                    "OS_Vendor": "Microsoft Corp.",
+                    "OS_Version": "10.0.22621",
+                    "Service_Pack_Version": "0.0",
+                    "SysVolumeFree": "742GB",
+                    "SysVolumeFreePercentage": 48,
+                    "SysVolumeTotal": "1.51TB",
+                    "SystemVolume": "C:\\Windows\\system32",
+                    "UserPasswordSet": 1,
+                    "Username": "ThaiPham",
+                    "name": "Microsoft Windows 11 Enterprise"
+                }
+            ],
+            "P2pa": [],
+            "PUA": [],
+            "PublicFileSharing": [
+                {
+                    "Status": 0
+                }
+            ],
+            "Recording_Web_Meeting": [],
+            "Remote_Control": [
+                {
+                    "ID": 3548,
+                    "PRODUCT_NAME": "AnyDesk",
+                    "Status": 2,
+                    "VENDOR": "AnyDesk Software GmbH",
+                    "VERSION": "7.1.13"
+                },
+                {
+                    "ID": 3089,
+                    "PRODUCT_NAME": "Microsoft Teams",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "1.6.00.18681"
+                },
+                {
+                    "ID": 2391,
+                    "PRODUCT_NAME": "TightVNC",
+                    "Status": 2,
+                    "VENDOR": "GlavSoft LLC.",
+                    "VERSION": "2.8.81.0"
+                },
+                {
+                    "ID": 3059,
+                    "PRODUCT_NAME": "Remote Desktop Connection",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.22621.1194"
+                }
+            ],
+            "Toolbars": [],
+            "Unclassified": [
+                {
+                    "ID": 3660,
+                    "PRODUCT_NAME": "Microsoft Visual C++ 2015-2022 Redistributable (x86)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "14.36.32532.0"
+                },
+                {
+                    "ID": 3202,
+                    "PRODUCT_NAME": "Microsoft Visual Studio Code (User)",
+                    "Status": 2,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "1.80.1"
+                },
+                {
+                    "ID": 3606,
+                    "PRODUCT_NAME": "Microsoft Publisher (C2R)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.0.16529.20182"
+                },
+                {
+                    "ID": 3561,
+                    "PRODUCT_NAME": "Postman",
+                    "Status": 1,
+                    "VENDOR": "Postman",
+                    "VERSION": "10.16.0"
+                },
+                {
+                    "ID": 2827,
+                    "PRODUCT_NAME": "Debugging Tools for Windows",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.17763.132"
+                },
+                {
+                    "ID": 3611,
+                    "PRODUCT_NAME": "Microsoft Word (C2R)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.0.16529.20182"
+                },
+                {
+                    "ID": 2971,
+                    "PRODUCT_NAME": "NinjaRMMAgent",
+                    "Status": 2,
+                    "VENDOR": "NinjaRMM LLC",
+                    "VERSION": ""
+                },
+                {
+                    "ID": 3504,
+                    "PRODUCT_NAME": "Powershell Core (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "7.3.6"
+                },
+                {
+                    "AR_ID": "3571",
+                    "ID": 3571,
+                    "PRODUCT_NAME": "Docker Desktop",
+                    "Status": 1,
+                    "VENDOR": "Docker, Inc.",
+                    "VERSION": "4.21.1"
+                },
+                {
+                    "ID": 3319,
+                    "PRODUCT_NAME": "Git (x64)",
+                    "Status": 2,
+                    "VENDOR": "The Git Development Community",
+                    "VERSION": "2.41.0"
+                },
+                {
+                    "ID": 3131,
+                    "PRODUCT_NAME": "Visual Studio Professional 2019",
+                    "Status": 2,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.11.27"
+                },
+                {
+                    "ID": 3355,
+                    "PRODUCT_NAME": "Microsoft ASP.NET Core 5.0 (x86)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "5.0.17"
+                },
+                {
+                    "ID": 3029,
+                    "PRODUCT_NAME": "Microsoft Office 365",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.0.16529.20182"
+                },
+                {
+                    "ID": 2925,
+                    "PRODUCT_NAME": "WordPad",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.22621.1"
+                },
+                {
+                    "ID": 3241,
+                    "PRODUCT_NAME": "Notepad++ (x64)",
+                    "Status": 2,
+                    "VENDOR": "Notepad++ Team",
+                    "VERSION": "8.5.4"
+                },
+                {
+                    "ID": 3353,
+                    "PRODUCT_NAME": "Microsoft ASP.NET Core 3.1 (x86)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "3.1.32"
+                },
+                {
+                    "ID": 3610,
+                    "PRODUCT_NAME": "Microsoft Excel (C2R)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.0.16529.20182"
+                },
+                {
+                    "ID": 3609,
+                    "PRODUCT_NAME": "Microsoft PowerPoint (C2R)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.0.16529.20182"
+                },
+                {
+                    "ID": 3340,
+                    "PRODUCT_NAME": "Node.js Current",
+                    "Status": 1,
+                    "VENDOR": "Joyent, Inc.",
+                    "VERSION": "20.5.0"
+                },
+                {
+                    "ID": 3608,
+                    "PRODUCT_NAME": "Microsoft OneNote (C2R)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.0.16529.20182"
+                },
+                {
+                    "ID": 3607,
+                    "PRODUCT_NAME": "Microsoft Outlook (C2R)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.0.16529.20182"
+                },
+                {
+                    "ID": 3605,
+                    "PRODUCT_NAME": "Microsoft Access (C2R)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.0.16529.20182"
+                },
+                {
+                    "ID": 3326,
+                    "PRODUCT_NAME": "Microsoft .NET Core Runtime - 3.1 (x86)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "3.1.32"
+                },
+                {
+                    "ID": 3102,
+                    "PRODUCT_NAME": "Teams Machine-Wide Installer",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "1.4.0.19572"
+                },
+                {
+                    "ID": 3304,
+                    "PRODUCT_NAME": "Microsoft Internet Information Services Express",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.07728"
+                },
+                {
+                    "ID": 3092,
+                    "PRODUCT_NAME": "Microsoft Visual C++ Redistributable 2013 (x86)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "12.0.40664.0"
+                },
+                {
+                    "ID": 3249,
+                    "PRODUCT_NAME": "Microsoft Visual C++ Redistributable 2010 (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.40219"
+                },
+                {
+                    "ID": 1634,
+                    "PRODUCT_NAME": "Windows Media Player",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "12.0.22621.1778"
+                },
+                {
+                    "ID": 3321,
+                    "PRODUCT_NAME": "Microsoft .NET Core Runtime 2.1 (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "2.1.30"
+                },
+                {
+                    "ID": 3320,
+                    "PRODUCT_NAME": "Microsoft .NET Core Runtime 3.1 (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "3.1.32"
+                },
+                {
+                    "ID": 3091,
+                    "PRODUCT_NAME": "Microsoft Visual C++ Redistributable 2013 (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "12.0.40664.0"
+                },
+                {
+                    "ID": 3248,
+                    "PRODUCT_NAME": "Microsoft Visual C++ Redistributable 2010 (x86)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.40219"
+                },
+                {
+                    "ID": 3659,
+                    "PRODUCT_NAME": "Microsoft Visual C++ 2015-2022 Redistributable (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "14.36.32532.0"
+                },
+                {
+                    "ID": 3306,
+                    "PRODUCT_NAME": "DirectX",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "12"
+                },
+                {
+                    "ID": 3139,
+                    "PRODUCT_NAME": "Disk Savvy (x64)",
+                    "Status": 1,
+                    "VENDOR": "Flexense Ltd.",
+                    "VERSION": "15.0.28"
+                },
+                {
+                    "ID": 3205,
+                    "PRODUCT_NAME": "Microsoft XML Parser 6",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "6.30.22621.1635"
+                },
+                {
+                    "ID": 2807,
+                    "PRODUCT_NAME": "Notepad",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.22621.1"
+                },
+                {
+                    "ID": 3111,
+                    "PRODUCT_NAME": "Microsoft .NET Framework 3.5",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "3.5.30729.9151"
+                },
+                {
+                    "ID": 3109,
+                    "PRODUCT_NAME": "Microsoft .NET Framework 4",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "4.8.9032.0"
+                },
+                {
+                    "ID": 3123,
+                    "PRODUCT_NAME": "Microsoft XML Parser 3",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "8.110.22621.1635"
+                },
+                {
+                    "ID": 3122,
+                    "PRODUCT_NAME": "Microsoft .NET Framework 2.0",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "2.0.50727.9157"
+                },
+                {
+                    "ID": 3121,
+                    "PRODUCT_NAME": "Microsoft .NET Framework 3.0",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "3.0.4506.9151"
+                },
+                {
+                    "ID": 3362,
+                    "PRODUCT_NAME": "Microsoft ASP.NET Core 5.0 (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "5.0.17"
+                },
+                {
+                    "AR_ID": "200",
+                    "ID": 200,
+                    "PRODUCT_NAME": "7-Zip (x64)",
+                    "Status": 1,
+                    "VENDOR": "Igor Pavlov",
+                    "VERSION": "23.01"
+                },
+                {
+                    "ID": 3361,
+                    "PRODUCT_NAME": "Microsoft ASP.NET Core 2.1 (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "2.1.30"
+                },
+                {
+                    "ID": 3359,
+                    "PRODUCT_NAME": "Microsoft ASP.NET Core 3.1 (x64)",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "3.1.32"
+                },
+                {
+                    "ID": 3661,
+                    "PRODUCT_NAME": "Python 3.11 64-bit",
+                    "Status": 1,
+                    "VENDOR": "Python Software Foundation",
+                    "VERSION": "3.11.3"
+                },
+                {
+                    "ID": 3666,
+                    "PRODUCT_NAME": "Python 3.11 32-bit",
+                    "Status": 1,
+                    "VENDOR": "Python Software Foundation",
+                    "VERSION": "3.11.3"
+                },
+                {
+                    "ID": 2819,
+                    "PRODUCT_NAME": "Adobe Acrobat Reader DC Continuous",
+                    "Status": 1,
+                    "VENDOR": "Adobe Systems Inc.",
+                    "VERSION": "23.003.20244"
+                }
+            ],
+            "Unclassified_PUA": [],
+            "Uninstaller": [],
+            "VPN_Client": [
+                {
+                    "ID": 1119,
+                    "PRODUCT_NAME": "Windows VPN Client",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.22621.1"
+                }
+            ],
+            "Virtual_Machine": [
+                {
+                    "ID": 1575,
+                    "PRODUCT_NAME": "Hyper-V Manager",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "10.0.22621.1"
+                },
+                {
+                    "AR_ID": "458",
+                    "ID": 458,
+                    "PRODUCT_NAME": "VMware Workstation",
+                    "Status": 2,
+                    "VENDOR": "VMware, Inc.",
+                    "VERSION": "17.0.2"
+                },
+                {
+                    "AR_ID": "308",
+                    "ID": 308,
+                    "PRODUCT_NAME": "VMware Player",
+                    "Status": 1,
+                    "VENDOR": "VMware, Inc.",
+                    "VERSION": "17.0.2"
+                }
+            ],
+            "Web_Conference": [
+                {
+                    "ID": 1056,
+                    "PRODUCT_NAME": "Microsoft Lync",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "16.0.16529.20182"
+                },
+                {
+                    "ID": 3089,
+                    "PRODUCT_NAME": "Microsoft Teams",
+                    "Status": 1,
+                    "VENDOR": "Microsoft Corporation",
+                    "VERSION": "1.6.00.18681"
+                }
+            ],
+            "WindowsSecurity": [
+                {
+                    "AR_ID": "",
+                    "ID": 0,
+                    "PRODUCT_NAME": "Windows Defender",
+                    "ProductEnabled": 1,
+                    "ProductUpToDate": 1,
+                    "VENDOR": "",
+                    "VERSION": ""
+                }
+            ]
+        }
+    },
+    "soh_hash": ""
+}
