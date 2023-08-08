@@ -4,9 +4,54 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace Utils {
+
+  template <typename T>
+  void format_impl(std::ostream& os, std::string format, const T& arg) {
+    if(auto pos = format.find("{}"); pos != std::string::npos) {
+      os << format.substr(0, pos);
+      os << arg;
+      os << format.substr(pos + 2);
+    }
+    else {
+      os << format;
+    }
+  }
+
+  template <typename T, typename... Args>
+  void format_impl(std::ostream& os, std::string format, const T& arg, const Args&... args) {
+    // avoid string copy, maybe string_view?
+    // wide string?
+    // use other placeholder than {}
+    if(auto pos = format.find("{}"); pos != std::string::npos) {
+      os << format.substr(0, pos);
+      os << arg;
+      format_impl(os, format.substr(pos + 2), args...);
+    }
+    else {
+      // no other placeholder found, stop process more args
+      os << format;
+      // os << arg;
+      // format_impl(os, "", args...);
+    }
+  }
+
+  template <typename... Args>
+  std::string simple_format(const std::string& format, Args... args) {
+    std::stringstream ss;
+    format_impl(ss, format, args...);
+    return ss.str();
+  }
+
+  template <typename... Args>
+  void easy_print(const std::string& format, Args... args) {
+    format_impl(std::cout, format, args...);
+    std::cout << std::endl;
+  }
+
   inline std::vector<std::string> split_str(const std::string& text, const std::string& delimeters) {
     std::size_t start = 0, end, delimLen = delimeters.length();
     std::string token;
