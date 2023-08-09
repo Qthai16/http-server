@@ -115,7 +115,7 @@ private:
   void* IPAddressParse(struct sockaddr* sa);
   HandlersMap::const_iterator get_registered_path(std::string path, bool exactMatch = true);
   void HandleClientConnections(EpollHandle& epollHandle);
-  void HandleEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr, uint32_t eventType);
+  void EventLoop(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr, uint32_t eventType);
   void HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr);
   void HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr);
 

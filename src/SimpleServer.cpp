@@ -131,7 +131,7 @@ void SimpleServer::HandleClientConnections(EpollHandle& epollHandle) {
       auto eventTypes = epollHandle.events[i].events;
       if(eventTypes == EPOLLIN || eventTypes == EPOLLOUT) {
         // normal case, recv or send
-        HandleEvent(epollHandle, reqEventData, eventTypes);
+        EventLoop(epollHandle, reqEventData, eventTypes);
       }
       else {
         // errors or event is not handled
@@ -144,7 +144,7 @@ void SimpleServer::HandleClientConnections(EpollHandle& epollHandle) {
   }
 }
 
-void SimpleServer::HandleEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr, uint32_t eventType) {
+void SimpleServer::EventLoop(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr, uint32_t eventType) {
   switch(eventType) {
   case EPOLLIN: {
     HandleReadEvent(epollHandle, eventDataPtr);

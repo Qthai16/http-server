@@ -4,13 +4,18 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
 namespace Utils {
 
+  inline void format_impl(std::ostream& os, std::string_view format) {
+    os << format;
+  }
+
   template <typename T>
-  void format_impl(std::ostream& os, std::string format, const T& arg) {
+  void format_impl(std::ostream& os, std::string_view format, const T& arg) {
     if(auto pos = format.find("{}"); pos != std::string::npos) {
       os << format.substr(0, pos);
       os << arg;
@@ -22,10 +27,10 @@ namespace Utils {
   }
 
   template <typename T, typename... Args>
-  void format_impl(std::ostream& os, std::string format, const T& arg, const Args&... args) {
-    // avoid string copy, maybe string_view?
+  void format_impl(std::ostream& os, std::string_view format, const T& arg, const Args&... args) {
+    // how to print {}?
+    // index {}?
     // wide string?
-    // use other placeholder than {}
     if(auto pos = format.find("{}"); pos != std::string::npos) {
       os << format.substr(0, pos);
       os << arg;
@@ -46,9 +51,20 @@ namespace Utils {
     return ss.str();
   }
 
+  inline std::string simple_format(const std::string& format) {
+    std::stringstream ss;
+    format_impl(ss, format);
+    return ss.str();
+  }
+
   template <typename... Args>
   void easy_print(const std::string& format, Args... args) {
     format_impl(std::cout, format, args...);
+    std::cout << std::endl;
+  }
+
+  inline void easy_print(const std::string& format) {
+    format_impl(std::cout, format);
     std::cout << std::endl;
   }
 
