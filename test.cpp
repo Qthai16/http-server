@@ -19,7 +19,9 @@
 #include <filesystem>
 
 #include "src/HttpMessage.h"
+#ifdef USE_OPENSSL
 #include "src/SSLUtils.h"
+#endif
 #include "src/SimpleServer.h"
 
 using namespace HttpMessage;
@@ -87,7 +89,6 @@ static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
 static void HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& res) {
   std::string sendData = R"JSON({"results": "upload form successfully"})JSON";
   auto len = sendData.length();
-  // HTTPResponse res(clientfd);
   res._version = req._version;
   res.status_code(HTTPStatusCode::OK);
   res.set_str_body(sendData);
@@ -106,8 +107,8 @@ static void HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req, Ht
 // }
 
 using namespace std::string_literals;
-using std::string, std::map;
 using std::cout, std::endl;
+using std::string, std::map;
 using namespace Utils;
 
 int main(int argc, char* argv[]) {
@@ -124,7 +125,7 @@ int main(int argc, char* argv[]) {
   easy_print("More args than placeholder {}, {}, {}", "abc", "3413413"s, 22.34f, "alfkjalfd");
   easy_print("More placeholder than args {}, {}, {}, {}, {}", 100);
   easy_print("No placeholder", 124, 22.34, 32, "alfkjalfd");
-  // easy_print("No placeholder, no args");
+  easy_print("No placeholder, no args");
 
   if(argc != 3) {
     std::cerr << "Usage: [executable] <address> <port> \n";
@@ -134,14 +135,16 @@ int main(int argc, char* argv[]) {
   auto port = stoi(std::string{argv[2]});
 
   SimpleServer server(address, port, THREADPOOL_SIZE);
+  // clang-format off
   server.AddHandlers({
-      {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2, _3)}},
-      {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2, _3)}},
-      {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2, _3)}},
-      // {"/form", {HTTPMethod::POST, &HandlePostForm}},
-      {"/abc", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/OPSWAT.ico", _1, _2, _3)}},
-      {"/static/css/main.b52b0c83.chunk.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/static/css/main.b52b0c83.chunk.css", _1, _2, _3)}}
+    {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2, _3)}},
+    {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2, _3)}},
+    {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2, _3)}},
+    // {"/form", {HTTPMethod::POST, &HandlePostForm}},
+    {"/abc", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/OPSWAT.ico", _1, _2, _3)}},
+    // {"/static/css/main.b52b0c83.chunk.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/static/css/main.b52b0c83.chunk.css", _1, _2, _3)}}
   });
+  // clang-format on
   // auto staticResMap = ServeStaticResources("react-build");
   // server.AddHandlers(staticResMap);
   server.Start();
