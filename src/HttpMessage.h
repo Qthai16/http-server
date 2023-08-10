@@ -76,10 +76,10 @@ namespace HttpMessage {
     HeadersMap _headers;
     std::ifstream _body;
     bool _finishWriteHeader;
-    std::streampos _totalWrite;
+    std::size_t _totalWrite;
     std::size_t _contentLength;
 
-    HTTPResponse(int clientFd) :
+    HTTPResponse() :
         _version(HTTPVersion::HTTP_1_1),
         _statusCode(HTTPStatusCode::OK),
         _headers(),
@@ -93,10 +93,17 @@ namespace HttpMessage {
         _body.close();
     }
 
-    // HTTPResponse(const HTTPResponse&) {}
-    // HTTPResponse(HTTPResponse&&) {}
-
-    const HTTPResponse& operator=(HTTPResponse response) { return *this; }
+    HTTPResponse(const HTTPResponse&) = delete;
+    const HTTPResponse& operator=(const HTTPResponse& other) = delete;
+    HTTPResponse(HTTPResponse&& other) {
+      _version = other._version;
+      _statusCode = other._statusCode;
+      _headers = other._headers;
+      _body = std::move(other._body);
+      _totalWrite = other._totalWrite;
+      _finishWriteHeader = other._finishWriteHeader;
+      _contentLength = other._contentLength;
+    }
 
     // friend std::ostream& operator<<(std::ostream& responseStream, HTTPResponse& response) {
     std::string serialize_header(char* buffer, std::size_t size) {

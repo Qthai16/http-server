@@ -10,6 +10,8 @@
             "command": "cmake",
             "args": [
                 "-DCMAKE_BUILD_TYPE=Debug",
+                "-DUSE_OPENSSL=OFF",
+                "-DUSE_LIBCURL=OFF",
                 ".."
             ]
         },

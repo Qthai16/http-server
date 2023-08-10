@@ -42,7 +42,7 @@ struct EpollHandle {
     EventData() :
         _fd(0), _eventBuffer(), _bytesInBuffer(BUFFER_SIZE), _request(nullptr), _response(nullptr){};
     EventData(int fd) :
-        _fd(fd), _eventBuffer(), _bytesInBuffer(BUFFER_SIZE), _request(new HTTPRequest()), _response(new HTTPResponse(fd)){};
+        _fd(fd), _eventBuffer(), _bytesInBuffer(BUFFER_SIZE), _request(new HTTPRequest()), _response(new HTTPResponse()){};
 
     // ~EventData() { close(_fd); }
     ~EventData() {
