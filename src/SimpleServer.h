@@ -35,13 +35,14 @@ struct EpollHandle {
   struct EventData {
     int _fd;
     char _eventBuffer[BUFFER_SIZE];
+    std::size_t _bytesInBuffer;
     HTTPRequest* _request;
     HTTPResponse* _response;
 
     EventData() :
-        _fd(0), _eventBuffer(), _request(nullptr), _response(nullptr){};
+        _fd(0), _eventBuffer(), _bytesInBuffer(BUFFER_SIZE), _request(nullptr), _response(nullptr){};
     EventData(int fd) :
-        _fd(fd), _eventBuffer(), _request(new HTTPRequest()), _response(new HTTPResponse(fd)){};
+        _fd(fd), _eventBuffer(), _bytesInBuffer(BUFFER_SIZE), _request(new HTTPRequest()), _response(new HTTPResponse(fd)){};
 
     // ~EventData() { close(_fd); }
     ~EventData() {

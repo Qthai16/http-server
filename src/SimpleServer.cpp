@@ -187,7 +187,7 @@ void SimpleServer::HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventD
         auto httpResPtr = resEventData->_response;
         matchIter->second.second(fd, *httpReqPtr, *httpResPtr); // handler must close fd on completion or error
         // serialize first part of response, the rest of body will be handle in HandleWriteEvent
-        httpResPtr->serialize_reponse(resEventData->_eventBuffer, BUFFER_SIZE);
+        resEventData->_bytesInBuffer = httpResPtr->serialize_reponse(resEventData->_eventBuffer, BUFFER_SIZE);
         epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
         delete eventDataPtr;
       }
@@ -210,10 +210,10 @@ void SimpleServer::HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventD
 
 void SimpleServer::HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr) {
   auto fd = eventDataPtr->_fd;
-  auto sendBytes = send(fd, eventDataPtr->_eventBuffer, sizeof(eventDataPtr->_eventBuffer), 0);
+  auto sendBytes = send(fd, eventDataPtr->_eventBuffer, eventDataPtr->_bytesInBuffer, 0);
   if(sendBytes >= 0) {
     if(eventDataPtr->_response->_totalWrite < eventDataPtr->_response->_contentLength) { // still have bytes to send
-      eventDataPtr->_response->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
+      eventDataPtr->_bytesInBuffer = eventDataPtr->_response->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
       epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
     }
     else { // write complete

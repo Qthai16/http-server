@@ -195,7 +195,7 @@ namespace HttpMessage {
     ~HTTPRequest() = default;
 
     std::size_t content_length() {
-      auto lenStr = headers_get_field(_headers, "Content-length");
+      auto lenStr = headers_get_field(_headers, "Content-Length");
       if(lenStr.empty())
         return 0;
       return stoul(lenStr);
