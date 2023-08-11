@@ -22,6 +22,20 @@
    ./benchmark.sh 2>&1 | tee benchmark-result.txt
 ```
 
+save remote address to event data
+log request to file
+check case write last chunk is return correct bytes or not
+save POST data to file on filesystem: parse Content-Disposition: attachment; filename=FILENAME
+parse accept header (comma delimeter)
+check if correctly parse query param
+refer simple-web-server API
+json11 submodule?
+support Transfer-Encoding: chunked?
+set callback for specific events: close connection, on open socket
+
+### Build project with clang
+### build as dynamic lib and use dlopen to load it when test run
+### Write simple test/unit test with google test or create own macro
 #### openssl: symmetric AES256-CFB128 encryption
 #### base64 encode/decode
 #### save private key/public key in source code using runtime xor/compile xor

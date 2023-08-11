@@ -183,13 +183,12 @@ void SimpleServer::HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventD
       }
       if(matchIter != _handlersMap.end() && matchIter->second.first == httpReqPtr->_method) {
         // call registered handler
-        auto resEventData = new EpollHandle::EventData(fd);
-        auto httpResPtr = resEventData->_response;
+        auto httpResPtr = eventDataPtr->_response;
+        eventDataPtr->clear_buffer();
         matchIter->second.second(fd, *httpReqPtr, *httpResPtr); // handler must close fd on completion or error
         // serialize first part of response, the rest of body will be handle in HandleWriteEvent
-        resEventData->_bytesInBuffer = httpResPtr->serialize_reponse(resEventData->_eventBuffer, BUFFER_SIZE);
-        epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
-        delete eventDataPtr;
+        eventDataPtr->_bytesInBuffer = httpResPtr->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
+        epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
       }
       // handle not registered path or method here
     }
@@ -217,8 +216,7 @@ void SimpleServer::HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::Event
       epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
     }
     else { // write complete
-    // if keep alive, reuse this fd for read event
-    // else close it
+      // if keep alive, reuse this fd for read event, else close it
       // auto reqEventData = new EpollHandle::EventData(fd);
       // epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, reqEventData);
       epollHandle.delete_fd(fd);
