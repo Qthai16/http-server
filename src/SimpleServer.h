@@ -51,6 +51,10 @@ struct EpollHandle {
       if(_response)
         delete _response;
     };
+
+    void clear_buffer() {
+      memset(&_eventBuffer, 0, sizeof(_eventBuffer));
+    }
   };
 
   int _epollFd;

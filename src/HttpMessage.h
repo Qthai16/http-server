@@ -71,10 +71,17 @@ namespace HttpMessage {
   std::string headers_get_field(const HeadersMap& headers, std::string key);
 
   struct HTTPResponse {
+    enum class ReadType {
+      UNINIT = -1,
+      FILE_READ = 0,
+      IN_MEMORY_READ = 1
+    };
     HTTPVersion _version;
     HTTPStatusCode _statusCode;
     HeadersMap _headers;
-    std::ifstream _body;
+    std::ifstream _body; // bad, should refactor later
+    std::stringstream _inMemoryBody;
+    ReadType _readType;
     bool _finishWriteHeader;
     std::size_t _totalWrite;
     std::size_t _contentLength;
@@ -84,6 +91,8 @@ namespace HttpMessage {
         _statusCode(HTTPStatusCode::OK),
         _headers(),
         _body(),
+        _inMemoryBody(),
+        _readType(ReadType::UNINIT),
         _finishWriteHeader(false),
         _totalWrite(0),
         _contentLength(0) {}
@@ -100,18 +109,22 @@ namespace HttpMessage {
       _statusCode = other._statusCode;
       _headers = other._headers;
       _body = std::move(other._body);
-      _totalWrite = other._totalWrite;
+      _inMemoryBody = std::move(other._inMemoryBody);
+      _readType = other._readType;
       _finishWriteHeader = other._finishWriteHeader;
+      _totalWrite = other._totalWrite;
       _contentLength = other._contentLength;
     }
 
     // friend std::ostream& operator<<(std::ostream& responseStream, HTTPResponse& response) {
-    std::string serialize_header(char* buffer, std::size_t size) {
+    std::size_t serialize_header(char* buffer, std::size_t bufferSize) {
       std::stringstream ss;
-      ss << version_str(_version) << " " << std::to_string(_statusCode) << " " << status_code_str(_statusCode) << "\r\n";
+      Utils::format_impl(ss, "{} {} {}\r\n", version_str(_version), std::to_string(_statusCode), status_code_str(_statusCode));
+      // ss << version_str(_version) << " " << std::to_string(_statusCode) << " " << status_code_str(_statusCode) << "\r\n";
       _headers["Content-Length"] = std::to_string(_contentLength);
       for(const auto& [key, value] : _headers) {
-        ss << key << ": " << value << "\r\n";
+        // ss << key << ": " << value << "\r\n";
+        Utils::format_impl(ss, "{}: {}\r\n", key, value);
       }
       ss << "\r\n";
       // ss.seekg(0, std::ios_base::end);
@@ -119,59 +132,78 @@ namespace HttpMessage {
       // ss.seekg(0, std::ios_base::beg);
       // ss.read(buffer, headerSize);
       auto text = ss.str();
-      text.copy(buffer, text.size());
+      auto headerSize = text.size();
+      if(headerSize > bufferSize) {
+        throw std::logic_error("buffer to small");
+        return headerSize;
+      }
+      text.copy(buffer, headerSize);
       _finishWriteHeader = true;
-      return text;
+      return headerSize;
     }
 
-    std::size_t serialize_reponse(char* buffer, std::size_t bufferSize) {
-      std::string headers;
-      if(!_finishWriteHeader)
-        headers = serialize_header(buffer, bufferSize);
-      auto headerSize = headers.length();
-      auto remainBufferBytes = bufferSize - headerSize;
-      if(remainBufferBytes <= 0) {
+    std::size_t serialize_body(std::istream& is, char* buffer, std::size_t bufferSize, std::size_t headerSize) {
+      auto remainBytes = bufferSize - headerSize;
+      if(remainBytes <= 0) {
         throw std::logic_error("buffer to small");
         return 0;
       }
-      if(remainBufferBytes > _contentLength) {
+      if(remainBytes > _contentLength) {
         // buffer is enough to write whole response
-        _body.read(buffer + headerSize, _contentLength);
+        is.read(buffer + headerSize, _contentLength);
         _totalWrite = _contentLength;
         return _contentLength + headerSize;
       }
       else {
-        if(remainBufferBytes < bufferSize) {
-          // body first chunk
-          _body.read(buffer + headerSize, bufferSize - headerSize);
+        if(remainBytes < bufferSize) { // first chunk
+          is.read(buffer + headerSize, bufferSize - headerSize);
           _totalWrite += bufferSize - headerSize;
           return bufferSize;
         }
         else {
-          if(_contentLength - _body.tellg() > bufferSize) {
-            _body.read(buffer, bufferSize);
+          if(_contentLength - is.tellg() > bufferSize) {
+            is.read(buffer, bufferSize);
             _totalWrite += bufferSize;
             return bufferSize;
           }
           else { // last chunk
-            _body.read(buffer, _contentLength - _body.tellg());
+            auto lastBytes = _contentLength - is.tellg();
+            is.read(buffer, lastBytes);
             _totalWrite = _contentLength;
-            return _contentLength - _body.tellg();
+            return lastBytes;
           }
         }
       }
+    }
+
+    std::size_t serialize_reponse(char* buffer, std::size_t bufferSize) {
+      std::size_t headerSize = 0;
+      std::size_t writeCount = 0;
+      if(!_finishWriteHeader)
+        headerSize = serialize_header(buffer, bufferSize);
+
+      if(_readType == ReadType::FILE_READ) {
+        writeCount = serialize_body(_body, buffer, bufferSize, headerSize);
+      }
+      else if(_readType == ReadType::IN_MEMORY_READ) {
+        writeCount = serialize_body(_inMemoryBody, buffer, bufferSize, headerSize);
+      }
+      // empty body?
+      return writeCount;
     }
 
     void status_code(HTTPStatusCode statusCode) {
       _statusCode = statusCode;
     }
 
-    void set_str_body(std::string content) {
-      _body = std::ifstream(content);
-      _contentLength = Utils::content_length(_body);
+    void set_str_body(const std::string& content) {
+      _readType = ReadType::IN_MEMORY_READ;
+      _inMemoryBody << content;
+      _contentLength = content.length();
     }
 
     void set_file_body(std::string path) {
+      _readType = ReadType::FILE_READ;
       _body.open(path);
       _contentLength = Utils::content_length(_body);
     }
@@ -263,21 +295,43 @@ namespace HttpMessage {
       parse_request(_bufferStream);
     }
 
-    std::string to_string() { // for debug only
-      std::cout << "version: " << version_str(_version) << ", method: " << method_str(_method) << "\n";
-      std::cout << "path: " << _path << "\n";
-      std::cout << "HEADERS: " << std::endl;
+    // for debug and logging
+    std::string to_string(std::ostream& os = std::cout) {
+      Utils::format_impl(os, "version: {}, method: {}, path: {}\r\n", version_str(_version), method_str(_method), _path);
+      Utils::format_impl(os, "headers: [\r\n");
       for(const auto& [key, value] : _headers) {
-        std::cout << key << ": " << value << '\n';
+        Utils::format_impl(os, "{}: {}\n", key, value);
       }
-      std::cout << "QUERY PARAMS: " << std::endl;
+      Utils::format_impl(os, "]\r\n");
+
+      Utils::format_impl(os, "query params: [\r\n");
       for(const auto& [key, value] : _queryParams) {
-        std::cout << key << ": " << value << '\n';
+        Utils::format_impl(os, "{}: {}\n", key, value);
       }
-      std::string body = _body.str();
-      std::cout << "BODY: " << std::endl;
-      std::cout << body << std::endl;
-      return "";
+      Utils::format_impl(os, "]\r\n");
+      // std::string body = _body.str();
+      // std::cout << "BODY: " << std::endl;
+      // std::cout << body << std::endl;
+      return ""; // change to void?
+    }
+
+    std::string to_json(std::ostream& os = std::cout) {
+      // args: version, method, path, headers, query_parm
+      auto jsonStrFormat = R"JSON({"version":"{}","method":"{}","path":"{}","headers":[{}],"query_params":[{}]})JSON";
+      auto serialize_dict = [](const HeadersMap& dict) -> std::string {
+        if (dict.empty())
+          return "";
+        std::string serializeStr = "{";
+        for(const auto& [key, value] : dict) {
+          serializeStr += Utils::simple_format(R"JSON("{}": "{}",)JSON", key, value);
+        }
+        serializeStr.pop_back(); // remove last comma (,)
+        serializeStr.push_back('}');
+        return serializeStr;
+      };
+      Utils::format_impl(os, jsonStrFormat,
+        version_str(_version), method_str(_method), _path, serialize_dict(_headers), serialize_dict(_queryParams));
+      return ""; // change to void?
     }
   };
 

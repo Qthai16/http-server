@@ -95,6 +95,7 @@ static void HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req, Ht
   res._headers = {{{"Content-Length", std::to_string(len)},
                    {"Connection", "keep-alive"}}};
   res._headers["Content-Type"] = "application/json";
+  // save body data to file
   // return res;
 }
 
@@ -111,7 +112,21 @@ using std::cout, std::endl;
 using std::string, std::map;
 using namespace Utils;
 
+auto g_test_request = R"TEST(GET / HTTP/1.1
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
+Accept-Encoding: gzip, deflate
+Accept-Language: en-US,en;q=0.9
+Cache-Control: max-age=0
+Connection: keep-alive
+Host: 172.31.234.35:11225
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36
+)TEST";
+
 int main(int argc, char* argv[]) {
+  // test, should be split to individual files
+  cout << "========== Start testing logic ==========" << endl;
+
   auto test_cases = map<string, string>{
       {"test_case_1", "Normal case: {}, {}"},
       {"test_case_2", "More args than placeholder {}, {}, {}"},
@@ -127,6 +142,16 @@ int main(int argc, char* argv[]) {
   easy_print("No placeholder", 124, 22.34, 32, "alfkjalfd");
   easy_print("No placeholder, no args");
 
+  std::stringstream ss(g_test_request);
+  auto& logStream = std::cout;
+  auto httpReq = std::make_unique<HTTPRequest>();
+  httpReq->parse_request(ss);
+  // httpReq->to_string();
+  httpReq->to_json(logStream);
+  logStream << endl;
+
+  cout << "========== Done testing logic ==========" << endl;
+
   if(argc != 3) {
     std::cerr << "Usage: [executable] <address> <port> \n";
     return -1;
@@ -140,7 +165,7 @@ int main(int argc, char* argv[]) {
     {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2, _3)}},
     {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2, _3)}},
     {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2, _3)}},
-    // {"/form", {HTTPMethod::POST, &HandlePostForm}},
+    {"/form", {HTTPMethod::POST, &HandlePostForm}},
     {"/abc", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/OPSWAT.ico", _1, _2, _3)}},
     // {"/static/css/main.b52b0c83.chunk.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/static/css/main.b52b0c83.chunk.css", _1, _2, _3)}}
   });
