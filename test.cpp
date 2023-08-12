@@ -87,16 +87,19 @@ static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
 }
 
 static void HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& res) {
+  static int inc = 0;
+  auto filename = req.content_filename();
+  if(!filename.empty()) {
+    std::ofstream outputFile(Utils::simple_format("post-file/{}-{}", filename, ++inc));
+    if(outputFile.is_open()) {
+      outputFile << req._bufferStream.str();
+    }
+  }
   std::string sendData = R"JSON({"results": "upload form successfully"})JSON";
-  auto len = sendData.length();
   res._version = req._version;
+  res._headers["Content-Type"] = "application/json";
   res.status_code(HTTPStatusCode::OK);
   res.set_str_body(sendData);
-  res._headers = {{{"Content-Length", std::to_string(len)},
-                   {"Connection", "keep-alive"}}};
-  res._headers["Content-Type"] = "application/json";
-  // save body data to file
-  // return res;
 }
 
 // void SendResourceNotFound(int clientfd) {
@@ -112,7 +115,7 @@ using std::cout, std::endl;
 using std::string, std::map;
 using namespace Utils;
 
-auto g_test_request = R"TEST(GET / HTTP/1.1
+auto g_test_GET_request = R"TEST(GET / HTTP/1.1
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
 Accept-Encoding: gzip, deflate
 Accept-Language: en-US,en;q=0.9
@@ -122,6 +125,16 @@ Host: 172.31.234.35:11225
 Upgrade-Insecure-Requests: 1
 User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36
 )TEST";
+
+auto g_test_POST_request = R"TEST(POST /form HTTP/1.1
+Host: localhost:11225
+User-Agent: curl/7.68.0
+Accept: */*
+Content-Length: 4391168
+Content-Type: application/x-www-form-urlencoded
+Expect: 100-continue)TEST";
+
+auto g_test_requests = {g_test_GET_request, g_test_POST_request};
 
 int main(int argc, char* argv[]) {
   // test, should be split to individual files
@@ -142,13 +155,16 @@ int main(int argc, char* argv[]) {
   easy_print("No placeholder", 124, 22.34, 32, "alfkjalfd");
   easy_print("No placeholder, no args");
 
-  std::stringstream ss(g_test_request);
   auto& logStream = std::cout;
-  auto httpReq = std::make_unique<HTTPRequest>();
-  httpReq->parse_request(ss);
-  // httpReq->to_string();
-  httpReq->to_json(logStream);
-  logStream << endl;
+  for(const auto& requestRawStr : g_test_requests) {
+    logStream << endl;
+    std::stringstream ss(requestRawStr);
+    auto httpReq = std::make_unique<HTTPRequest>();
+    httpReq->parse_headers(ss);
+    // httpReq->to_string();
+    httpReq->to_json(logStream);
+    logStream << endl;
+  }
 
   cout << "========== Done testing logic ==========" << endl;
 

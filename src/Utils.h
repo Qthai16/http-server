@@ -117,4 +117,10 @@ namespace Utils {
     buffer << input.rdbuf();
     return buffer.str();
   }
+
+  inline bool str_iequals(const std::string& s1, const std::string& s2) {
+  return std::equal(s1.begin(), s1.end(), s2.begin(), s2.end(), [](char a, char b) {
+    return tolower(a) == tolower(b);
+  });
+}
 } // namespace Utils

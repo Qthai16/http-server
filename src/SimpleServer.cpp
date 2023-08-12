@@ -171,8 +171,21 @@ void SimpleServer::HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventD
   auto httpReqPtr = eventDataPtr->_request;
   auto byte_count = recv(fd, eventDataPtr->_eventBuffer, sizeof(eventDataPtr->_eventBuffer), 0);
   if(byte_count > 0) {
-    httpReqPtr->_bufferStream.write(eventDataPtr->_eventBuffer, byte_count);
-    httpReqPtr->parse_request();
+    httpReqPtr->parse_request(httpReqPtr->_bufferStream, eventDataPtr->_eventBuffer, byte_count);
+    if (httpReqPtr->_expectContinue) {
+      auto resEventData = new EpollHandle::EventData(fd);
+      std::stringstream ss;
+      Utils::format_impl(ss, "{} {} {}\r\n", version_str(httpReqPtr->_version),
+        std::to_string(HTTPStatusCode::Continue),
+        status_code_str(HTTPStatusCode::Continue));
+      ss << "\r\n";
+      auto text = ss.str();
+      text.copy(resEventData->_eventBuffer, text.size());
+      epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, resEventData);
+      send(fd, resEventData->_eventBuffer, resEventData->_bytesInBuffer, 0);
+      httpReqPtr->_expectContinue = false;
+      delete resEventData;
+    }
     if(httpReqPtr->_totalRead < httpReqPtr->content_length()) { // still have bytes to read
       epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
     }

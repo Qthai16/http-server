@@ -11,6 +11,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <cstring>
 
 #include "Utils.h"
 
@@ -188,7 +189,8 @@ namespace HttpMessage {
       else if(_readType == ReadType::IN_MEMORY_READ) {
         writeCount = serialize_body(_inMemoryBody, buffer, bufferSize, headerSize);
       }
-      // empty body?
+      else { // empty body?
+      }
       return writeCount;
     }
 
@@ -215,9 +217,9 @@ namespace HttpMessage {
     HeadersMap _headers;
     HeadersMap _queryParams;
     std::string _path;
-    std::stringstream _body;
     std::stringstream _bufferStream;
     std::size_t _totalRead;
+    bool _expectContinue;
     bool _finishParseHeaders;
 
     HTTPRequest() :
@@ -226,18 +228,36 @@ namespace HttpMessage {
         _headers(),
         _queryParams(),
         _path(),
-        _body(),
         _bufferStream(),
         _totalRead(0),
+        _expectContinue(false),
         _finishParseHeaders(false) {}
 
     ~HTTPRequest() = default;
 
-    std::size_t content_length() {
+    std::size_t content_length() const {
       auto lenStr = headers_get_field(_headers, "Content-Length");
       if(lenStr.empty())
         return 0;
       return stoul(lenStr);
+    }
+
+    std::string content_filename() const {
+      // Content-Disposition: attachment; filename=FILENAME
+      auto contentDisposition = headers_get_field(_headers, "Content-Disposition");
+      if(contentDisposition.empty())
+        return "";
+      auto ind = contentDisposition.find("filename=");
+      if (ind != std::string::npos)
+        return contentDisposition.substr(ind+strlen("filename="));
+      else return contentDisposition;
+    }
+
+    bool expect_100_continue() const {
+      auto expectStatus = headers_get_field(_headers, "Expect");
+      if(expectStatus.empty())
+        return false;
+      return Utils::str_iequals("100-continue", expectStatus);
     }
 
     void parse_query_params(const std::string& path) {
@@ -253,9 +273,7 @@ namespace HttpMessage {
       }
     }
 
-    void parse_headers(std::istream& is) {
-      if(is.bad())
-        return;
+    std::streampos parse_headers(std::istream& is) {
       std::string line;
       std::string firstLine;
       // first line is [method path version]
@@ -264,6 +282,7 @@ namespace HttpMessage {
         if(tokens.size() != 3) {
           std::cerr << "Error, invalid http message" << std::endl;
           throw std::runtime_error("invalid http message");
+          return 0;
         }
         _method = str_to_method(tokens[0]);
         _path = tokens[1];
@@ -280,19 +299,29 @@ namespace HttpMessage {
         auto value = Utils::trim_str(trimLine.substr(delimPos + 1));
         _headers[header] = value;
       }
+      _expectContinue = expect_100_continue();
       _finishParseHeaders = true;
+      return is.tellg();
     }
 
-    void parse_request(std::istream& is) {
-      if(!_finishParseHeaders)
-        parse_headers(is);
-      // remaining lines is body
-      _body << is.rdbuf();
-      _totalRead += Utils::content_length(is);
-    }
-
-    void parse_request() {
-      parse_request(_bufferStream);
+    std::size_t parse_request(std::ostream& os, char* buffer, std::size_t bytesCount) {
+      std::streampos headerSize = 0;
+      if(!_finishParseHeaders) {
+        std::stringstream tempBuffer;
+        tempBuffer.write(buffer, bytesCount);
+        headerSize = parse_headers(tempBuffer);
+        // write remaining body bytes to os stream
+        if(!expect_100_continue()) {
+          auto wholeStr = tempBuffer.str();
+          auto bodyPart = wholeStr.substr(headerSize);
+          os.write(bodyPart.data(), bodyPart.size());
+        }
+      }
+      else {
+        os.write(buffer, bytesCount);
+      }
+      _totalRead += bytesCount - headerSize;
+      return _totalRead;
     }
 
     // for debug and logging
@@ -319,7 +348,7 @@ namespace HttpMessage {
       // args: version, method, path, headers, query_parm
       auto jsonStrFormat = R"JSON({"version":"{}","method":"{}","path":"{}","headers":[{}],"query_params":[{}]})JSON";
       auto serialize_dict = [](const HeadersMap& dict) -> std::string {
-        if (dict.empty())
+        if(dict.empty())
           return "";
         std::string serializeStr = "{";
         for(const auto& [key, value] : dict) {
@@ -330,7 +359,7 @@ namespace HttpMessage {
         return serializeStr;
       };
       Utils::format_impl(os, jsonStrFormat,
-        version_str(_version), method_str(_method), _path, serialize_dict(_headers), serialize_dict(_queryParams));
+                         version_str(_version), method_str(_method), _path, serialize_dict(_headers), serialize_dict(_queryParams));
       return ""; // change to void?
     }
   };

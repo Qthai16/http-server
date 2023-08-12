@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <memory>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
