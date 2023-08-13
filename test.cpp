@@ -2,6 +2,7 @@
 #include <string>
 #include <thread>
 
+#include <cassert>
 #include <arpa/inet.h>
 #include <cstring>
 #include <fstream>
@@ -10,6 +11,7 @@
 #include <netinet/in.h>
 #include <regex>
 #include <sstream>
+#include <tuple>
 #include <stdio.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -29,6 +31,10 @@ using namespace std::placeholders;
 
 #define THREADPOOL_SIZE 4
 namespace fs = std::filesystem;
+
+#define Q(x) #x
+#define ASSERT_EQ(first, second) assert(first == second)
+#define ASSERT_NEQ(first, second) assert(first == second)
 
 static void SendStaticFile(std::string path, int clientfd, const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& response) {
   response._version = req._version;
@@ -112,7 +118,7 @@ static void HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req, Ht
 
 using namespace std::string_literals;
 using std::cout, std::endl;
-using std::string, std::map;
+using std::string, std::map, std::tuple;
 using namespace Utils;
 
 auto g_test_GET_request = R"TEST(GET / HTTP/1.1
@@ -140,20 +146,13 @@ int main(int argc, char* argv[]) {
   // test, should be split to individual files
   cout << "========== Start testing logic ==========" << endl;
 
-  auto test_cases = map<string, string>{
-      {"test_case_1", "Normal case: {}, {}"},
-      {"test_case_2", "More args than placeholder {}, {}, {}"},
-      {"test_case_3", "More placeholder than args {}, {}, {}, {}, {}"},
-      {"test_case_4", "No placeholder"},
-  };
-  for(const auto& [test_case, format] : test_cases) {
-    cout << simple_format("{}, format: {}", test_case, format) << endl;
-  }
-  easy_print("Normal case: {}, {}", 1000000, 124.0);
-  easy_print("More args than placeholder {}, {}, {}", "abc", "3413413"s, 22.34f, "alfkjalfd");
-  easy_print("More placeholder than args {}, {}, {}, {}, {}", 100);
-  easy_print("No placeholder", 124, 22.34, 32, "alfkjalfd");
-  easy_print("No placeholder, no args");
+  ASSERT_EQ(simple_format("Normal case: {}, {}", 1000000, 124.23),
+            "Normal case: 1000000, 124.23");
+  ASSERT_EQ(simple_format("More args than placeholder: {}, {}", "abc"s, 22.34f, "alfkjalfd"),
+            "More args than placeholder: abc, 22.34");
+  easy_print("More placeholder than args {}, {}, {}, {}, {}", 100); // refer python or std::format for design
+  ASSERT_EQ(simple_format("No placeholder", 124, 22.34, 32, "alfkjalfd"), "No placeholder");
+  ASSERT_EQ(simple_format("No placeholder, no args"), "No placeholder, no args");
 
   auto& logStream = std::cout;
   for(const auto& requestRawStr : g_test_requests) {
@@ -165,6 +164,21 @@ int main(int argc, char* argv[]) {
     httpReq->to_json(logStream);
     logStream << endl;
   }
+  using TestType = tuple<string, string, bool>;
+  auto compareEqualsTest = map<string, TestType>{
+      {"case 1", TestType{"abc123", "ABC123", true}},
+      {"case 2", TestType{"The Quick Brown Fox Jumps Over The Lazy Dog", "the quick brown fox jumps over the lazy dog", true}},
+      {"case 3", TestType{"11111111", "22222222", false}},
+      {"case 4", TestType{"content-length", "CoNtEnT-LENgth", true}},
+  };
+  Utils::easy_print("Ignore case compare test");
+  for (const auto& [first, second] : compareEqualsTest) {
+    std::string str1, str2;
+    bool result;
+    std::tie(str1, str2, result) = second;
+    ASSERT_EQ(Utils::str_iequals(str1, str2), result);
+  }
+
 
   cout << "========== Done testing logic ==========" << endl;
 
