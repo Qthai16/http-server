@@ -243,7 +243,8 @@ namespace HttpMessage {
     }
 
     std::string content_filename() const {
-      // Content-Disposition: attachment; filename=FILENAME
+      // Content-Disposition: attachment; name="file_name"; filename="file_name"
+      // header filename?
       auto contentDisposition = headers_get_field(_headers, "Content-Disposition");
       if(contentDisposition.empty())
         return "";
