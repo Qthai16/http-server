@@ -104,12 +104,14 @@ public:
   using URLFormat = std::string;
   using HandlerFunction = std::function<void(const HttpMessage::HTTPRequest&, HttpMessage::HTTPResponse&)>;
   using HandlersMap = std::unordered_map<URLFormat, std::pair<HTTPMethod, HandlerFunction>>;
+  using DefaultHandlersMap = std::map<HTTPMethod, HandlerFunction>;
 
 private:
   std::string _address;
   unsigned int _port;
   std::size_t _poolSize;
   HandlersMap _handlersMap;
+  DefaultHandlersMap _defaultHandlersMap;
   int _serverFd;
   std::atomic_bool _stop;
   std::chrono::milliseconds _sleepTimes;
@@ -123,6 +125,8 @@ private:
   void EventLoop(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr, uint32_t eventType);
   void HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr);
   void HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr);
+  static void OnExpectContinue(const HttpMessage::HTTPRequest&, HttpMessage::HTTPResponse&);
+  static void OnDefaultGET(const HttpMessage::HTTPRequest&, HttpMessage::HTTPResponse&);
 
 public:
   static inline std::map<std::string, std::string> _mimeTypes = {
