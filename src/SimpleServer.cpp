@@ -186,7 +186,7 @@ void SimpleServer::HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventD
       httpReqPtr->_expectContinue = false;
       delete resEventData;
     }
-    if(httpReqPtr->_totalRead < httpReqPtr->content_length()) { // still have bytes to read
+    if(!httpReqPtr->request_completed()) { // still have bytes to read
       epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
     }
     else { // read done

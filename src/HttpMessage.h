@@ -219,7 +219,9 @@ namespace HttpMessage {
     std::string _path;
     std::stringstream _bufferStream;
     std::size_t _totalRead;
+    std::size_t _contentLength;
     bool _expectContinue;
+    bool _requestCompleted;
     bool _finishParseHeaders;
 
     HTTPRequest() :
@@ -230,7 +232,9 @@ namespace HttpMessage {
         _path(),
         _bufferStream(),
         _totalRead(0),
+        _contentLength(0),
         _expectContinue(false),
+        _requestCompleted(false),
         _finishParseHeaders(false) {}
 
     ~HTTPRequest() = default;
@@ -301,6 +305,7 @@ namespace HttpMessage {
         _headers[header] = value;
       }
       _expectContinue = expect_100_continue();
+      _contentLength = content_length();
       _finishParseHeaders = true;
       return is.tellg();
     }
@@ -312,17 +317,21 @@ namespace HttpMessage {
         tempBuffer.write(buffer, bytesCount);
         headerSize = parse_headers(tempBuffer);
         // write remaining body bytes to os stream
-        if(!expect_100_continue()) {
-          auto wholeStr = tempBuffer.str();
-          auto bodyPart = wholeStr.substr(headerSize);
-          os.write(bodyPart.data(), bodyPart.size());
-        }
+        if(expect_100_continue())
+          return _totalRead;
+        auto wholeStr = tempBuffer.str();
+        auto bodyPart = wholeStr.substr(headerSize);
+        os.write(bodyPart.data(), bodyPart.size());
       }
       else {
         os.write(buffer, bytesCount);
       }
       _totalRead += bytesCount - headerSize;
       return _totalRead;
+    }
+
+    bool request_completed() const {
+      return _totalRead >= _contentLength;
     }
 
     // for debug and logging
