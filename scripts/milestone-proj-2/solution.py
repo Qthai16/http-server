@@ -1,5 +1,6 @@
 #! /usr/bin/python3
 
+from __future__ import annotations
 import sys
 from enum import Enum
 import random
@@ -116,7 +117,9 @@ class Deck():
         return Deck(drawCards)
     
     def add_bottom_cards(self, cards: list[Card]):
-        self.cards.extend(cards)
+        if (type(cards) == list):
+            self.cards.extend(cards)
+        else: self.cards.append(cards)
 
 class DeckIterator:
     def __init__(self, deck: Deck):
@@ -198,9 +201,9 @@ if __name__ == "__main__":
     print(f"{sammy.name} cards: {sammy.cards}") # use decorator to printing after draw/add card
     print(f"{sammy.name} draws top card: {sammy.draw_top_cards()}")
     print(f"{sammy.name} draws top 3 card: {sammy.draw_top_cards(3)}")
-    print(f"{sammy.name} draws add 1 card to bottom: {sammy.add_bottom_cards([Card(Suit.CLUBS, Rank.TWO)])}")
+    print(f"{sammy.name} adds 1 card to bottom: {sammy.add_bottom_cards([Card(Suit.CLUBS, Rank.TWO)])}")
     print(f"{sammy.name} cards: {sammy.cards}")
-    print(f"{sammy.name} draws add 2 card to bottom: {sammy.add_bottom_cards([Card(Suit.SPADES, Rank.SEVEN), Card(Suit.HEARTS, Rank.KING)])}")
+    print(f"{sammy.name} adds 2 card to bottom: {sammy.add_bottom_cards([Card(Suit.SPADES, Rank.SEVEN), Card(Suit.HEARTS, Rank.KING)])}")
     print(f"{sammy.name} cards: {sammy.cards}")
     # test end
 
