@@ -34,9 +34,9 @@ namespace fs = std::filesystem;
 
 #define Q(x) #x
 #define ASSERT_EQ(first, second) assert(first == second)
-#define ASSERT_NEQ(first, second) assert(first == second)
+#define ASSERT_NEQ(first, second) assert(first != second)
 
-static void SendStaticFile(std::string path, int clientfd, const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& response) {
+static void SendStaticFile(std::string path, const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& response) {
   response._version = req._version;
   response._headers["Connection"] = "keep-alive";
 
@@ -75,8 +75,10 @@ static void SendStaticFile(std::string path, int clientfd, const HttpMessage::HT
 }
 
 static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
-  using namespace std::placeholders;
   SimpleServer::HandlersMap handlersMap;
+  if (!fs::exists(rootPath) || !fs::is_directory(rootPath)) {
+    return handlersMap;
+  }
   for(auto& entry : fs::recursive_directory_iterator(rootPath)) {
     if(!fs::is_regular_file(entry.path()))
       continue;
@@ -87,12 +89,12 @@ static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
     // std::cout << "filename: " << filePath.filename().string() << ", extension: " << filePath.extension().string() << std::endl;
     if(urlPath == "/index.html")
       urlPath = "/";
-    handlersMap[urlPath] = {HTTPMethod::GET, std::bind(&SendStaticFile, absolutePath, _1, _2, _3)};
+    handlersMap[urlPath] = {HTTPMethod::GET, std::bind(&SendStaticFile, absolutePath, _1, _2)};
   }
   return handlersMap;
 }
 
-static void HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& res) {
+static void HandlePostForm(const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& res) {
   static int inc = 0;
   auto filename = req.content_filename();
   if(!filename.empty()) {
@@ -107,14 +109,6 @@ static void HandlePostForm(int clientfd, const HttpMessage::HTTPRequest& req, Ht
   res.status_code(HTTPStatusCode::OK);
   res.set_str_body(sendData);
 }
-
-// void SendResourceNotFound(int clientfd) {
-//   HTTPResponse response(clientfd);
-//   std::string sendData = R"JSON({"errors": "resource not found"})JSON";
-//   response.status_code(HTTPStatusCode::NotFound).body(sendData);
-//   response._headers = HeadersMap{{{"Content-Type", "application/json"},
-//                                   {"Connection", "keep-alive"}}};
-// }
 
 using namespace std::string_literals;
 using std::cout, std::endl;
@@ -192,11 +186,11 @@ int main(int argc, char* argv[]) {
   SimpleServer server(address, port, THREADPOOL_SIZE);
   // clang-format off
   server.AddHandlers({
-    {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2, _3)}},
-    {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2, _3)}},
-    {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2, _3)}},
+    {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
+    {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2)}},
+    {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2)}},
     {"/form", {HTTPMethod::POST, &HandlePostForm}},
-    {"/abc", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/OPSWAT.ico", _1, _2, _3)}},
+    {"/abc", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/OPSWAT.ico", _1, _2)}}
     // {"/static/css/main.b52b0c83.chunk.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/static/css/main.b52b0c83.chunk.css", _1, _2, _3)}}
   });
   // clang-format on

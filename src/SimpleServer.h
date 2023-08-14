@@ -102,7 +102,7 @@ struct EpollHandle {
 class SimpleServer {
 public:
   using URLFormat = std::string;
-  using HandlerFunction = std::function<void(int, const HttpMessage::HTTPRequest&, HttpMessage::HTTPResponse&)>;
+  using HandlerFunction = std::function<void(const HttpMessage::HTTPRequest&, HttpMessage::HTTPResponse&)>;
   using HandlersMap = std::unordered_map<URLFormat, std::pair<HTTPMethod, HandlerFunction>>;
 
 private:

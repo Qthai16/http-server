@@ -22,15 +22,14 @@
    ./benchmark.sh 2>&1 | tee benchmark-result.txt
 ```
 
-save remote address to event data
-log request to file
-check case write last chunk is return correct bytes or not
-save POST data to file on filesystem: parse Content-Disposition: attachment; filename=FILENAME
+add remote endpoint address to event data
+support "Transfer-Encoding: chunked"
+support "Content-Type: multipart/form-data"
 parse accept header (comma delimeter)
-check if correctly parse query param
+test if correctly parse query param
+log request to file
 refer simple-web-server API
 json11 submodule?
-support Transfer-Encoding: chunked?
 set callback for specific events: close connection, on open socket
 
 ### Build project with clang

@@ -172,7 +172,7 @@ void SimpleServer::HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventD
   auto byte_count = recv(fd, eventDataPtr->_eventBuffer, sizeof(eventDataPtr->_eventBuffer), 0);
   if(byte_count > 0) {
     httpReqPtr->parse_request(httpReqPtr->_bufferStream, eventDataPtr->_eventBuffer, byte_count);
-    if (httpReqPtr->_expectContinue) {
+    if(httpReqPtr->_expectContinue) {
       auto resEventData = new EpollHandle::EventData(fd);
       std::stringstream ss;
       Utils::format_impl(ss, "{} {} {}\r\n", version_str(httpReqPtr->_version),
@@ -189,16 +189,15 @@ void SimpleServer::HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventD
     if(httpReqPtr->_totalRead < httpReqPtr->content_length()) { // still have bytes to read
       epollHandle.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
     }
-    else {                                                     // read done
+    else { // read done
+      auto httpResPtr = eventDataPtr->_response;
+      eventDataPtr->clear_buffer();
       auto matchIter = get_registered_path(httpReqPtr->_path); // exact match first
       if(matchIter == _handlersMap.end()) {
         matchIter = get_registered_path(httpReqPtr->_path, false);
       }
       if(matchIter != _handlersMap.end() && matchIter->second.first == httpReqPtr->_method) {
-        // call registered handler
-        auto httpResPtr = eventDataPtr->_response;
-        eventDataPtr->clear_buffer();
-        matchIter->second.second(fd, *httpReqPtr, *httpResPtr); // handler must close fd on completion or error
+        matchIter->second.second(*httpReqPtr, *httpResPtr); // call registered handler
         // serialize first part of response, the rest of body will be handle in HandleWriteEvent
         eventDataPtr->_bytesInBuffer = httpResPtr->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
         epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
