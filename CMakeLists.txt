@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.7)
 
 project(http-server-from-scratch C CXX)
 
-# set(CXX_STANDARD 17)
+# check cmake version and set options accordingly to version
+# set(CXX_STANDARD 17) # cxx 17 flag only supported in 3.8
 # set(CXX_STANDARD_REQUIRED ON)
 
 find_package(Threads REQUIRED)

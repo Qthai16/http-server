@@ -13,13 +13,13 @@ SimpleServer::SimpleServer(std::string address, unsigned int port, std::size_t p
     _port(port),
     _poolSize(poolSize),
     _handlersMap(),
+    _defaultHandlersMap(),
     _serverFd(-1),
     _stop(false),
     _sleepTimes(10ms),
     _epollHandles(),
-    _workersPool()
-{
-
+    _workersPool() {
+  _defaultHandlersMap[HTTPMethod::GET] = &SimpleServer::OnDefaultGET;
 }
 
 void SimpleServer::Start() {
@@ -176,8 +176,8 @@ void SimpleServer::HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventD
       auto resEventData = new EpollHandle::EventData(fd);
       std::stringstream ss;
       Utils::format_impl(ss, "{} {} {}\r\n", version_str(httpReqPtr->_version),
-        std::to_string(HTTPStatusCode::Continue),
-        status_code_str(HTTPStatusCode::Continue));
+                         std::to_string(HTTPStatusCode::Continue),
+                         status_code_str(HTTPStatusCode::Continue));
       ss << "\r\n";
       auto text = ss.str();
       text.copy(resEventData->_eventBuffer, text.size());
@@ -202,7 +202,17 @@ void SimpleServer::HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventD
         eventDataPtr->_bytesInBuffer = httpResPtr->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
         epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
       }
-      // handle not registered path or method here
+      else {
+        if(_defaultHandlersMap.count(httpReqPtr->_method)) {
+          // not registered path
+          _defaultHandlersMap.at(httpReqPtr->_method)(*httpReqPtr, *httpResPtr);
+          eventDataPtr->_bytesInBuffer = httpResPtr->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
+          epollHandle.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
+        }
+        else {
+          // method not supported or default handler for method not found
+        }
+      }
     }
   }
   else if((byte_count < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -248,4 +258,14 @@ void SimpleServer::HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::Event
       eventDataPtr = nullptr;
     }
   }
+}
+
+void SimpleServer::OnExpectContinue(const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& res) {
+}
+
+void SimpleServer::OnDefaultGET(const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& res) {
+  res.status_code(HTTPStatusCode::NotFound);
+  res._headers = HeadersMap{{{"Content-Type", "application/json"}}};
+  auto sendData = R"JSON({"errors": "resource not found"})JSON";
+  res.set_str_body(sendData);
 }
