@@ -260,10 +260,10 @@ void SimpleServer::HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::Event
   }
 }
 
-void SimpleServer::OnExpectContinue(const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& res) {
+void SimpleServer::OnExpectContinue(const HttpMessage::HTTPRequest&, HttpMessage::HTTPResponse&) {
 }
 
-void SimpleServer::OnDefaultGET(const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& res) {
+void SimpleServer::OnDefaultGET(const HttpMessage::HTTPRequest&, HttpMessage::HTTPResponse& res) {
   res.status_code(HTTPStatusCode::NotFound);
   res._headers = HeadersMap{{{"Content-Type", "application/json"}}};
   auto sendData = R"JSON({"errors": "resource not found"})JSON";
