@@ -1,10 +1,10 @@
-cmake_minimum_required(VERSION 3.7)
+cmake_minimum_required(VERSION 3.8)
 
 project(http-server-from-scratch C CXX)
 
 # check cmake version and set options accordingly to version
-# set(CXX_STANDARD 17) # cxx 17 flag only supported in 3.8
-# set(CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 17) # cxx 17 only supported from 3.8
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Threads REQUIRED)
 
@@ -34,14 +34,14 @@ if (CURL_FOUND)
 endif()
 
 # old approach
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++17 -g -Wall")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -std=c++17 -w -O3")
+# set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++17 -g -Wall")
+# set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -std=c++17 -w -O3")
 
 # new approach for compile options
 # -Wsign-conversion
-# add_compile_options(-Wall -Wextra)
-# add_compile_options("$<$<CONFIG:Debug>:-g>")
-# add_compile_options("$<$<CONFIG:Release>:-w;-O3>")
+add_compile_options(-Wall -Wextra)
+add_compile_options("$<$<CONFIG:Debug>:-g>")
+add_compile_options("$<$<CONFIG:Release>:-w;-O3>")
 # set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 
 add_executable(${PROJECT_NAME} test.cpp src/HttpMessage.cpp src/SimpleServer.cpp)
