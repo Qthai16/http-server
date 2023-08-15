@@ -9,7 +9,7 @@
             },
             "command": "cmake",
             "args": [
-                "-DCMAKE_BUILD_TYPE=Debug",
+                "-DCMAKE_BUILD_TYPE=Release",
                 "-DUSE_OPENSSL=OFF",
                 "-DUSE_LIBCURL=OFF",
                 ".."

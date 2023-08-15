@@ -96,7 +96,8 @@ static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
 
 static void HandlePostForm(const HttpMessage::HTTPRequest& req, HttpMessage::HTTPResponse& res) {
   static int inc = 0;
-  auto filename = req.content_filename();
+  // auto filename = req.content_filename();
+  auto filename = req.get_header("filename");
   if(!filename.empty()) {
     std::ofstream outputFile(Utils::simple_format("post-file/{}-{}", filename, ++inc));
     if(outputFile.is_open()) {
@@ -189,13 +190,13 @@ int main(int argc, char* argv[]) {
     {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
     {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2)}},
     {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2)}},
-    {"/form", {HTTPMethod::POST, &HandlePostForm}},
+    {"/file", {HTTPMethod::PUT, &HandlePostForm}},
     {"/abc", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/OPSWAT.ico", _1, _2)}}
     // {"/static/css/main.b52b0c83.chunk.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/static/css/main.b52b0c83.chunk.css", _1, _2, _3)}}
   });
   // clang-format on
-  // auto staticResMap = ServeStaticResources("react-build");
-  // server.AddHandlers(staticResMap);
+  auto staticResMap = ServeStaticResources("react-build");
+  server.AddHandlers(staticResMap);
   server.Start();
   server.Listen();
   return 0;

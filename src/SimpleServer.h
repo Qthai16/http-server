@@ -26,7 +26,7 @@
 
 #define BUFFER_SIZE 4096
 #define QUEUEBACKLOG 100
-#define MAX_EPOLL_EVENTS 800
+#define MAX_EPOLL_EVENTS 100
 
 using namespace std::chrono;
 using namespace std::chrono_literals;

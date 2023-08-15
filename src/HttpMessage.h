@@ -111,6 +111,7 @@ namespace HttpMessage {
     HTTPRequest();
     ~HTTPRequest() = default;
 
+    std::string get_header(const std::string& key) const;
     std::size_t content_length() const;
     std::string content_filename() const;
     bool expect_100_continue() const;
