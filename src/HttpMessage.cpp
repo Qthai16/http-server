@@ -155,6 +155,10 @@ HTTPRequest::HTTPRequest() :
     _expectContinue(false),
     _finishParseHeaders(false) {}
 
+std::string HTTPRequest::get_header(const std::string& key) const {
+  return headers_get_field(_headers, key);
+}
+
 std::size_t HTTPRequest::content_length() const {
   auto lenStr = headers_get_field(_headers, "Content-Length");
   if(lenStr.empty())
