@@ -135,6 +135,34 @@ Content-Length: 4391168
 Content-Type: application/x-www-form-urlencoded
 Expect: 100-continue)TEST";
 
+auto g_multipart_request = R"TEST(POST / HTTP/1.1
+Host: localhost:11225
+User-Agent: curl/7.68.0
+Accept: */*
+Content-Type: multipart/form-data; boundary=1234554321
+
+--1234554321
+Content-Disposition: form-data; name="sometext"
+
+some text sent via post...
+--1234554321
+Content-Disposition: form-data; name="files"
+Content-Type: multipart/mixed; boundary=abcdefghjklm
+
+--abcdefghjklm
+Content-Disposition: file; file="picture.jpg"
+Content-Type: 
+
+content of jpg...
+--abcdefghjklm
+Content-Disposition: file; file="test.py"
+Content-Type:
+Content-Length:
+
+content of test.py file ....
+--abcdefghjklm--
+--1234554321--)TEST";
+
 auto g_test_requests = {g_test_GET_request, g_test_POST_request};
 
 int main(int argc, char* argv[]) {
@@ -174,6 +202,31 @@ int main(int argc, char* argv[]) {
     ASSERT_EQ(Utils::str_iequals(str1, str2), result);
   }
 
+  std::ifstream multipart("post-file/multipart-1");
+  if (multipart.is_open()) {
+    auto httpReq = std::make_unique<HTTPRequest>();
+    httpReq->parse_headers(multipart);
+    auto headerValue = httpReq->get_header("Content-Type");
+    // check if content type == "multipart/form-data"
+    auto tokens = Utils::split_str(headerValue, ";");
+    ASSERT_EQ((tokens.size() >= 2), true);
+    auto contentType = tokens[0];
+    auto boundaryValue = tokens[1];
+    ASSERT_EQ(Utils::str_iequals(contentType, "multipart/form-data"), true);
+    auto pos = boundaryValue.find("boundary="); // find ignore case
+    ASSERT_EQ((pos != std::string::npos), true);
+    auto boundary = boundaryValue.substr(strlen("boundary=")+1);
+    // httpReq->to_string();
+    // httpReq->to_json(logStream);
+    auto formDatas = httpReq->parse_multipart_form_data(multipart, boundary);
+    for (const auto& form : formDatas) {
+      // if (auto filename = form._filename; !filename.empty()) {
+      //   std::ofstream outfile(filename+".abc123");
+      cout << "debug: " << form._bufferStream.rdbuf()->str() << endl;
+      // }
+    }
+    logStream << endl;
+  }
 
   cout << "========== Done testing logic ==========" << endl;
 
@@ -191,6 +244,7 @@ int main(int argc, char* argv[]) {
     {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2)}},
     {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2)}},
     {"/file", {HTTPMethod::PUT, &HandlePostForm}},
+    {"/form", {HTTPMethod::POST, &HandlePostForm}},
     {"/abc", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/OPSWAT.ico", _1, _2)}}
     // {"/static/css/main.b52b0c83.chunk.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/static/css/main.b52b0c83.chunk.css", _1, _2, _3)}}
   });

@@ -211,6 +211,7 @@ void SimpleServer::HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventD
         }
         else {
           // method not supported or default handler for method not found
+          std::cout << "something wrong happen here, your handler cannot called" << std::endl;
         }
       }
     }

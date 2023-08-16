@@ -175,9 +175,9 @@ std::string HTTPRequest::content_filename() const {
   auto ind = contentDisposition.find("filename=");
   if(ind != std::string::npos) {
     auto filename = contentDisposition.substr(ind + strlen("filename="));
-    if (filename[0] == '"')
+    if(filename[0] == '"')
       filename.erase(filename.begin()); // confuse erase overloaded
-    if (filename[filename.size() - 1] == '"')
+    if(filename[filename.size() - 1] == '"')
       filename.pop_back();
     return filename;
   }
@@ -259,6 +259,67 @@ std::size_t HTTPRequest::parse_request(std::ostream& os, char* buffer, std::size
   }
   _totalRead += bytesCount - headerSize;
   return _totalRead;
+}
+
+void FormData::parse_filename() {
+  auto contentDisposition = headers_get_field(_headers, "Content-Disposition");
+  if(contentDisposition.empty())
+    return;
+
+  auto stripValue = [text = contentDisposition](std::string key) -> std::string {
+    auto ind = text.find(key);
+    if(ind == std::string::npos)
+      return "";
+    auto value = text.substr(ind + key.size());
+    if(value[0] == '"')
+      value.erase(value.begin()); // confuse erase overloaded
+    if(value[value.size() - 1] == '"')
+      value.pop_back();
+    return value;
+  };
+  _filename = stripValue("filename=");
+  _name = stripValue("name=");
+}
+
+std::streampos FormData::parse_headers(std::istream& is) {
+  std::string line;
+  while(std::getline(is, line, '\n')) {
+    auto trimLine = Utils::trim_str(line);
+    if(trimLine.empty())
+      break;
+    auto delimPos = trimLine.find(':');
+    auto header = trimLine.substr(0, delimPos);
+    auto value = Utils::trim_str(trimLine.substr(delimPos + 1));
+    _headers[header] = value;
+  }
+  parse_filename();
+  _finishParseHeaders = true;
+  return is.tellg();
+}
+
+std::list<FormData> HTTPRequest::parse_multipart_form_data(std::istream& is, const std::string& boundary) {
+  std::list<FormData> formDatas;
+  using hash_str = std::hash<std::string>;
+  std::string line;
+  while(std::getline(is, line, '\n')) {
+    if((line.size() == boundary.size()+2) && hash_str{}("--" + boundary) == hash_str{}(line)) {
+      FormData formData{};
+      formData.parse_headers(is);
+      formDatas.push_back(std::move(formData));
+    }
+    else if ((line.size() == boundary.size()+4) && hash_str{}("--" + boundary + "--") == hash_str{}(line)) {
+      break;
+    }
+    else {
+      if(!formDatas.empty()) {
+        is.seekg(-1, std::ios_base::cur);
+        char lastChar;
+        is.get(lastChar);
+        formDatas.back()._bufferStream << line << lastChar;
+      }
+    }
+  }
+  return formDatas;
 }
 
 // for debug and logging

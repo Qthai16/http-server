@@ -7,6 +7,7 @@
 #include <map>
 #include <string>
 #include <algorithm>
+#include <list>
 
 #include "Utils.h"
 
@@ -96,7 +97,24 @@ namespace HttpMessage {
     void set_file_body(std::string path);
   };
 
+  struct FormData {
+    std::stringstream _bufferStream;
+    HeadersMap _headers;
+    std::string _name;
+    std::string _filename;
+    bool _finishParseHeaders;
+
+    std::streampos parse_headers(std::istream& is);
+    void parse_filename();
+  };
+
   struct HTTPRequest {
+    enum class TransferType {
+      UNINIT = -1,
+      RAW = 0,
+      CHUNKED = 1,
+      MULTIPART = 2
+    };
     HTTPVersion _version;
     HTTPMethod _method;
     HeadersMap _headers;
@@ -119,6 +137,7 @@ namespace HttpMessage {
 
     void parse_query_params(const std::string& path);
     std::streampos parse_headers(std::istream& is);
+    std::list<FormData> parse_multipart_form_data(std::istream& is, const std::string& boundary);
     std::size_t parse_request(std::ostream& os, char* buffer, std::size_t bytesCount);
     // for debug and logging
     std::string to_string(std::ostream& os = std::cout);
