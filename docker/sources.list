@@ -1,0 +1,14 @@
+#------------------------------------------------------------------------------#
+#                            OFFICIAL UBUNTU REPOS                             #
+#------------------------------------------------------------------------------#
+
+## EOL upgrade sources.list
+# Required
+deb https://mirror.umd.edu/ubuntu focal main restricted universe multiverse
+deb https://mirror.umd.edu/ubuntu focal-updates main restricted universe multiverse
+deb https://mirror.umd.edu/ubuntu focal-security main restricted universe multiverse
+
+# Optional
+# deb http://old-releases.ubuntu.com/ubuntu/ zesty-backports main restricted universe multiverse
+
+# deb-src http://httpredir.debian.org/debian/ experimental main contrib non-free # disabled on upgrade to artful
