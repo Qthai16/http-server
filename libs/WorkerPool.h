@@ -35,7 +35,7 @@ namespace libs {
         NotifyQueueWorker &operator=(NotifyQueueWorker &&) = delete;
 
         explicit NotifyQueueWorker(size_t nworker, std::function<void(T &)> handle)
-            : handler(std::move(handle)), requeststop(false), completeAll(true), onWorkCnt{0}, nDecreaseWorker(0) {
+            : handler(std::move(handle)), requestStop(false), completeAll(true), onWorkCnt{0}, nDecreaseWorker(0) {
             // if (nworker < 1) nworker = 1;
             workers.resize(nworker);
             nWorker = nworker;
@@ -51,7 +51,7 @@ namespace libs {
         void stop(bool completeAllJob = true) {
             if (!workers.empty()) {
                 completeAll = completeAllJob;
-                requeststop = true;
+                requestStop = true;
                 cv.notify_all();
                 for (auto i = 0; i < workers.size(); i++) {
                     auto& p = workers[i];
@@ -63,11 +63,6 @@ namespace libs {
                 }
                 workers.clear();
             }
-        }
-
-        bool isJobPending() {
-            std::lock_guard<std::mutex> guard(mtx);
-            return (jobqueue.size() > 0 || onWorkCnt.load(std::memory_order_acquire) > 0);
         }
 
         bool push(T j) {
@@ -85,14 +80,9 @@ namespace libs {
             return jobqueue.size();
         }
 
-        size_t jobSize() const {
+        size_t totalJobs() const {
             std::unique_lock<std::mutex> lock(mtx);
             return jobqueue.size() + onWorkCnt.load(std::memory_order_acquire);
-        }
-
-        bool empty() const {
-            std::unique_lock<std::mutex> lock(mtx);
-            return jobqueue.empty();
         }
 
         size_t workerSize() const {
@@ -150,11 +140,11 @@ namespace libs {
                 lock.unlock();
                 cv.notify_all();
                 lock.lock();
-                if (requeststop || nWorker == n) return;
+                if (requestStop || nWorker == n) return;
                 cv.wait(lock, [&, n] {
-                    return requeststop || nWorker == n;
+                    return requestStop || nWorker == n;
                 });
-                if (!requeststop) {
+                if (!requestStop) {
                     assert(nWorker == n && nDecreaseWorker == 0);
                 }
             }
@@ -171,7 +161,7 @@ namespace libs {
     private:
         void delWorkerAt(int idx) {
             std::unique_lock<std::mutex> lock(mtx);
-            if (requeststop) return;
+            if (requestStop) return;
             assert(workers[idx] != nullptr);
             workers[idx]->join();
             delete workers[idx];
@@ -200,9 +190,9 @@ namespace libs {
                     continue;
                 }
                 cv.wait(lock, [&] {
-                    return jobqueue.size() || requeststop || nDecreaseWorker;
+                    return jobqueue.size() || requestStop || nDecreaseWorker;
                 });
-                if (expr_unlikely(requeststop)) break;
+                if (expr_unlikely(requestStop)) break;
                 if (expr_unlikely(nDecreaseWorker > 0)) {
                     --nDecreaseWorker;
                     std::thread(&NotifyQueueWorker::delWorkerAt, this, idx).detach();
@@ -216,7 +206,7 @@ namespace libs {
                 lock.unlock();
                 handler(j);
                 onWorkCnt.fetch_sub(1, std::memory_order_acq_rel);
-            } while (expr_likely(!requeststop));
+            } while (expr_likely(!requestStop));
 
             if (completeAll) {
                 do {
@@ -244,7 +234,7 @@ namespace libs {
         std::atomic<int64_t> onWorkCnt;
         int nDecreaseWorker;
         int nWorker;
-        bool requeststop;
+        bool requestStop;
         bool completeAll;
     };
 }// namespace libs
