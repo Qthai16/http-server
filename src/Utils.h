@@ -121,4 +121,45 @@ namespace Utils {
             return tolower(a) == tolower(b);
         });
     }
+
+    // void test_backup() {
+    //     // test, should be split to individual files
+    //     cout << "========== Start testing logic ==========" << endl;
+
+    //     ASSERT_EQ(simple_format("Normal case: {}, {}", 1000000, 124.23),
+    //               "Normal case: 1000000, 124.23");
+    //     ASSERT_EQ(simple_format("More args than placeholder: {}, {}", "abc"s, 22.34f, "alfkjalfd"),
+    //               "More args than placeholder: abc, 22.34");
+    //     easy_print("More placeholder than args {}, {}, {}, {}, {}", 100);// refer python or std::format for design
+    //     ASSERT_EQ(simple_format("No placeholder", 124, 22.34, 32, "alfkjalfd"), "No placeholder");
+    //     ASSERT_EQ(simple_format("No placeholder, no args"), "No placeholder, no args");
+
+    //     auto &logStream = std::cout;
+    //     for (const auto &requestRawStr: g_test_requests) {
+    //         logStream << endl;
+    //         std::stringstream ss(requestRawStr);
+    //         auto httpReq = std::make_unique<HTTPRequest>();
+    //         httpReq->parse_headers(ss);
+    //         // httpReq->to_string();
+    //         httpReq->to_json(logStream);
+    //         logStream << endl;
+    //     }
+    //     using TestType = tuple<string, string, bool>;
+    //     auto compareEqualsTest = map<string, TestType>{
+    //             {"case 1", TestType{"abc123", "ABC123", true}},
+    //             {"case 2", TestType{"The Quick Brown Fox Jumps Over The Lazy Dog", "the quick brown fox jumps over the lazy dog", true}},
+    //             {"case 3", TestType{"11111111", "22222222", false}},
+    //             {"case 4", TestType{"content-length", "CoNtEnT-LENgth", true}},
+    //     };
+    //     Utils::easy_print("Ignore case compare test");
+    //     for (const auto &[first, second]: compareEqualsTest) {
+    //         std::string str1, str2;
+    //         bool result;
+    //         std::tie(str1, str2, result) = second;
+    //         ASSERT_EQ(Utils::str_iequals(str1, str2), result);
+    //     }
+
+
+    //     cout << "========== Done testing logic ==========" << endl;
+    // }
 }// namespace Utils

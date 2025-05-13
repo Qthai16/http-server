@@ -42,3 +42,9 @@ do
             break;;
     esac
 done
+
+# -nopad
+encrypt:
+    echo -n "this is a top secret message" | openssl enc -nosalt -aes-256-cbc -e -K $(echo -n "my_encrypted_key" | sha256sum | cut -c1-64) -iv '5c1ed556267339a52e0f49a30f1ed082' -base64
+decrypt:
+    echo -n "<base64_encrypted>" | base64 --decode | openssl enc -nosalt -aes-256-cbc -d -K $(echo -n "my_encrypted_key" | sha256sum | cut -c1-64) -iv '5c1ed556267339a52e0f49a30f1ed082'

@@ -135,11 +135,11 @@ namespace libs {
         void removeWorkers(int newNWorker, int decCnt) {
             std::unique_lock<std::mutex> lock(mtx);
             if (requestStop || nWorker == newNWorker) return;
-            while (!(requestStop || nDecreaseWorker == 0)) {
-                workerCv.wait(lock);
-            }
+            workerCv.wait(lock, [&]() {
+                return requestStop || nDecreaseWorker == 0;
+            });
             if (requestStop) return;
-            printf("%d, %zu, %d\n", decCnt, deadWorkerIds.size(), nDecreaseWorker);
+            // printf("%d, %zu, %d\n", decCnt, deadWorkerIds.size(), nDecreaseWorker);
             assert(decCnt == deadWorkerIds.size() && nDecreaseWorker == 0);
             // cleanup dead workers
             for (const auto &idx: deadWorkerIds) {

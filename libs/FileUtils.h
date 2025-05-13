@@ -52,6 +52,10 @@ namespace libs {
         return true;
     }
 
+    // size_t file_size(const char* filename) {
+
+    // }
+
 };// namespace libs
 
 #endif// LIBS_FILEUTILS_H

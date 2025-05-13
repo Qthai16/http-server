@@ -104,7 +104,7 @@ namespace libs {
         }
 
 #endif
-
+        // void deriveFromPassword(key, iv, password);
 
     }// namespace ssl
 
