@@ -2,13 +2,14 @@ cmake_minimum_required(VERSION 3.16)
 
 project(http-server-from-scratch C CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# set(CMAKE_CXX_STANDARD 17)
+# set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# # uncomment to use clang build with sanitize address option
+# uncomment to use clang build with sanitize address option
 # set(CMAKE_C_COMPILER /usr/bin/clang)
 # set(CMAKE_CXX_COMPILER /usr/bin/clang++)
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+# # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
 
 find_package(Threads REQUIRED)
 
@@ -25,6 +26,7 @@ set(LINK_LIBS
 # openssl
 option(USE_OPENSSL "set ON to build with OpenSSL" OFF)
 option(USE_LIBCURL "set ON to build with libcurl" OFF)
+option(ENABLE_TEST "set ON to build test" ON)
 
 if (USE_OPENSSL)
     # libcurl4-openssl-dev
@@ -49,7 +51,10 @@ endif()
 # add_compile_options(-Wall -Wextra)
 add_compile_options("$<$<CONFIG:Debug>:-g>")
 add_compile_options("$<$<CONFIG:Release>:-w;-O3>")
-# set_target_properties(http-server PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+set_target_properties(http-server PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+)
 
 
 add_executable(http-server ${SRC_FILES})
@@ -81,7 +86,15 @@ target_include_directories(socket_test PRIVATE
 target_link_libraries(socket_test pthread ssl crypto)
 
 
+add_executable(join-thread test_joinable_thread.cpp)
+target_include_directories(join-thread PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(join-thread pthread ssl crypto)
 
+if (ENABLE_TEST)
+    add_subdirectory(test)
+endif()
 
 
 # if (OPENSSL_FOUND)
