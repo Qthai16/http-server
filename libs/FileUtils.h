@@ -10,7 +10,10 @@
 
 #include <unistd.h>
 #include <stdint.h>
+#include <sys/stat.h>
 #include <errno.h>
+#include <stdio.h>
+#include <string.h>
 
 namespace libs {
 
@@ -52,9 +55,33 @@ namespace libs {
         return true;
     }
 
-    // size_t file_size(const char* filename) {
+    inline int makeDir(const char *dir, int mode = S_IRWXU) {
+        char tmp[4096];
+        char *p = NULL;
+        size_t len;
 
-    // }
+        snprintf(tmp, sizeof(tmp), "%s", dir);
+        len = strlen(tmp);
+        if (tmp[len - 1] == '/')
+            tmp[len - 1] = 0;
+        for (p = tmp + 1; *p; p++)
+            if (*p == '/') {
+                *p = 0;
+                mkdir(tmp, mode);
+                *p = '/';
+            }
+        return mkdir(tmp, mode);
+    }
+
+    inline bool isDir(const char *path) {
+        struct ::stat st;
+        return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+    }
+
+    inline bool isFile(const char *path) {
+        struct ::stat st;
+        return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+    }
 
 };// namespace libs
 
