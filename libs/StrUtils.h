@@ -19,6 +19,7 @@
 #include <cstring>
 
 #include "Defines.h"
+#include "TypeTraits.h"
 
 namespace libs {
     inline std::string toHexStr(const char *buf, std::size_t size) {
@@ -37,11 +38,11 @@ namespace libs {
         return ss.str();
     }
 
-    #if __cplusplus >= 201703L
+#if __cplusplus >= 201703L
     inline std::string toHexStr(std::string_view str) {
         return toHexStr(str.data(), str.size());
     }
-    #endif
+#endif
 
     inline void to_lower(std::string &s) {
         std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
@@ -71,84 +72,107 @@ namespace libs {
     }
 
     namespace detail {
-        // refer implementation from CLI11 TypeTools
-        enum class enabler {};
-        constexpr enabler dummy = {};
+        template<typename T, typename Trait>
+        struct Writer {
+            static std::string to_string(const T &v);
+        };
 
         template<typename T>
-        using IsNumber = std::enable_if_t<std::is_arithmetic<T>::value, enabler>;
-        template<typename T>
-        using IsString = std::enable_if_t<std::is_same<std::string, T>::value, enabler>;
-        template<typename T>
-        using IsEnum = std::enable_if_t<std::is_enum<T>::value, enabler>;
-        template<typename T>
-        using IsOthers = std::enable_if_t<!std::is_arithmetic<T>::value && !std::is_same<std::string, T>::value && !std::is_enum<T>::value, enabler>;
-        struct Writer {
-            template<typename T, IsNumber<T> = dummy>
+        struct Writer<T, std::enable_if_t<is_number<T>::value, enabler>> {
             static std::string to_string(const T &v) {
                 return std::to_string(v);
             }
+        };
 
-            template<typename T, IsString<T> = dummy>
+        template<typename T>
+        struct Writer<T, std::enable_if_t<is_string<T>::value, enabler>> {
             static std::string to_string(const T &v) {
                 return v;
             }
+        };
 
+        // todo: traits for string constructible and invokeable
+        template<>
+        struct Writer<char *, enabler> {
             static std::string to_string(const char *v) {
-                return v;
+                return {v};
             }
+        };
 
-            template<typename T, IsEnum<T> = dummy>
+        template<typename T>
+        struct Writer<T, std::enable_if_t<is_enum<T>::value && !is_ostreamable<T>::value, enabler>> {
             static std::string to_string(const T &v) {
-                std::ostringstream os;
-                os << v;
-                return os.str();
+                return std::to_string(static_cast<int>(v));
             }
+        };
 
-            template<typename T, IsOthers<T> = dummy>
+        // pair
+        template<typename T>
+        struct Writer<T, std::enable_if_t<is_std_pair<T>::value, enabler>> {
             static std::string to_string(const T &v) {
-                std::ostringstream os;
-                os << v;
-                return os.str();
+                auto s1 = Writer<typename T::first_type, enabler>::to_string(v.first);
+                auto s2 = Writer<typename T::second_type, enabler>::to_string(v.second);
+                return s1 + ": " + s2;
             }
+        };
 
-            template<typename K, typename V>
-            static std::string to_string(const typename std::pair<K, V> &v) {
-                std::ostringstream o;
-                o << to_string(v.first) << ": " << to_string(v.second);
-                return o.str();
-            }
-
-            template<typename T>
-            static std::string to_string(const T &beg, const T &end) {
-                std::ostringstream o;
-                for (T it = beg; it != end; ++it) {
-                    if (it != beg)
-                        o << ", ";
-                    o << to_string(*it);
+        // vector
+        template<typename T>
+        struct Writer<T, std::enable_if_t<is_std_vector<T>::value, enabler>> {
+            static std::string to_string(const T &v) {
+                using ElemType = typename T::value_type;
+                std::string ret;
+                ret.append("[");
+                // todo: iterator like support???
+                for (auto it = std::begin(v); it != std::end(v); it++) {
+                    if (it != std::begin(v))
+                        ret.append(", ");
+                    ret.append(Writer<ElemType, enabler>::to_string(*it));
                 }
-                return o.str();
+                ret.append("]");
+                return ret;
             }
+        };
 
-            template<typename T>
-            static std::string to_string(const std::vector<T> &t) {
-                std::ostringstream o;
-                o << "[" << to_string(t.begin(), t.end()) << "]";
-                return o.str();
+        // set
+        template<typename T>
+        struct Writer<T, std::enable_if_t<is_std_set<T>::value, enabler>> {
+            static std::string to_string(const T &v) {
+                using ElemType = typename T::value_type;
+                std::string ret;
+                ret.append("(");
+                for (auto it = std::begin(v); it != std::end(v); it++) {
+                    if (it != std::begin(v))
+                        ret.append(", ");
+                    ret.append(Writer<ElemType, enabler>::to_string(*it));
+                }
+                ret.append(")");
+                return ret;
             }
+        };
 
-            template<typename K, typename V>
-            static std::string to_string(const std::map<K, V> &m) {
-                std::ostringstream o;
-                o << "{" << to_string(m.begin(), m.end()) << "}";
-                return o.str();
+        // map
+        template<typename T>
+        struct Writer<T, std::enable_if_t<is_std_map<T>::value, enabler>> {
+            static std::string to_string(const T &v) {
+                std::string ret;
+                ret.append("{");
+                for (auto it = std::begin(v); it != std::end(v); it++) {
+                    if (it != std::begin(v))
+                        ret.append(", ");
+                    ret.append(Writer<typename T::value_type, enabler>::to_string(*it));// call pair::to_string
+                }
+                ret.append("}");
+                return ret;
             }
+        };
 
-            template<typename T>
-            static std::string to_string(const std::set<T> &s) {
-                std::ostringstream o;
-                o << "{" << to_string(s.begin(), s.end()) << "}";
-                return o.str();
+        template<typename T>
+        struct Writer<T, std::enable_if_t<!is_number<T>::value && !is_string<T>::value && is_ostreamable<T>::value, enabler>> {
+            static std::string to_string(const T &v) {
+                std::stringstream ss;
+                ss << v;
+                return ss.str();
             }
         };
 
@@ -164,7 +188,8 @@ namespace libs {
                 os.write(format, pos - format);
                 auto preBytes = pos - format;
                 if (*(pos + 1) == '}') {// {}
-                    os << detail::Writer::to_string(arg);
+                    auto strArg = Writer<T, enabler>::to_string(arg);
+                    os.write(strArg.data(), strArg.size());
                     format_impl(os, pos + 2, size - 2 - preBytes);
                 } else if (*(pos + 1) == '{') {
                     if ((pos - format + 2 < size) && (*(pos + 2) == '}')) {
@@ -173,7 +198,8 @@ namespace libs {
                             format_impl(os, pos + 4, size - 4 - preBytes, arg);
                         } else {// {{} at end or {{}X
                             os.put('{');
-                            os << detail::Writer::to_string(arg);
+                            auto strArg = Writer<T, enabler>::to_string(arg);
+                            os.write(strArg.data(), strArg.size());
                             format_impl(os, pos + 3, size - 3 - preBytes);
                         }
                     } else {// {{ at end or {{X
@@ -200,7 +226,8 @@ namespace libs {
                 os.write(format, pos - format);
                 auto preBytes = pos - format;
                 if (*(pos + 1) == '}') {// {}
-                    os << detail::Writer::to_string(arg);
+                    auto strArg = Writer<T, enabler>::to_string(arg);
+                    os.write(strArg.data(), strArg.size());
                     format_impl(os, pos + 2, size - 2 - preBytes, std::forward<Args>(args)...);
                 } else if (*(pos + 1) == '{') {
                     if ((pos - format + 2 < size) && (*(pos + 2) == '}')) {
@@ -209,7 +236,8 @@ namespace libs {
                             format_impl(os, pos + 4, size - 4 - preBytes, arg, std::forward<Args>(args)...);
                         } else {// {{} at end or {{}X
                             os.put('{');
-                            os << detail::Writer::to_string(arg);
+                            auto strArg = Writer<T, enabler>::to_string(arg);
+                            os.write(strArg.data(), strArg.size());
                             format_impl(os, pos + 3, size - 3 - preBytes, std::forward<Args>(args)...);
                         }
                     } else {// {{ at end or {{X
@@ -245,74 +273,17 @@ namespace libs {
         return ss.str();
     }
 
-    namespace test {
-#define TEST_ASSERT_EQ(first, second) assert((first) == (second))
-        enum TestEnum1 {
-            A = 1,
-            B = 2,
-        };
-        enum TestEnum2 {
-            X = 100,
-            Y = 101,
-            Z = 102,
-        };
+    inline std::string sprintf_format(const char *format, ...) {
+        char buffer[4096]{0};
+        va_list args;
+        va_start(args, format);
+        vsprintf(buffer, format, args);
+        va_end(args);
+        return {buffer};
+    }
 
-        static std::ostream &operator<<(std::ostream &os, const TestEnum2 &e) {
-            switch (e) {
-                case TestEnum2::X:
-                    os << "X";
-                    break;
-                case TestEnum2::Y:
-                    os << "Y";
-                    break;
-                case TestEnum2::Z:
-                    os << "Z";
-                    break;
-                default:
-                    os << "Unknown";
-                    break;
-            }
-            return os;
-        }
-        struct simple_format_test {
-            static std::string sprintf_format(const char *format, ...) {
-                char buffer[4096]{0};
-                va_list args;
-                va_start(args, format);
-                vsprintf(buffer, format, args);
-                va_end(args);
-                return (buffer);
-            }
-
-            static void run() {
-                TEST_ASSERT_EQ(simple_format("{} normal case: int: {}, double: {}, str: {}", "Start", 1000000, 124.23, std::string{"abcxyz"}),
-                               sprintf_format("%s normal case: int: %d, double: %f, str: %s", "Start", 1000000, 124.23, "abcxyz"));
-                TEST_ASSERT_EQ(simple_format("More args than placeholder: {}, {}", "abc", 22.34f, "alfkjalfd"),
-                               sprintf_format("More args than placeholder: %s, %f", "abc", 22.34f, "alfkjalfd"));
-                // TEST_ASSERT_EQ("More placeholder than argument: {}, {}", "abc");
-                TEST_ASSERT_EQ(simple_format("No placeholder", 124, 22.34, 32, "alfkjalfd"), "No placeholder");
-                TEST_ASSERT_EQ(simple_format("No placeholder, no args"), "No placeholder, no args");
-                TEST_ASSERT_EQ(simple_format("{{}} Escape placeholder {{}} case: {}, {{}}", 999, 124.23), "{} Escape placeholder {} case: 999, {}");
-
-                TEST_ASSERT_EQ(simple_format("{{} string is {{} and {}}, {{}", "Test", 16, 17.02, "end"),
-                               sprintf_format("{%s string is {%d and %f}, {%s", "Test", 16, 17.02, "end"));
-                TEST_ASSERT_EQ(simple_format("{{Test {{abc that contain: {{", "not_used", "not_used"), "{{Test {{abc that contain: {{");
-                TEST_ASSERT_EQ(simple_format("{asdfgh{asdfgh{", "not_used", "not_used"), "{asdfgh{asdfgh{");
-                TEST_ASSERT_EQ(simple_format("abc{{}}abc", 123), "abc{}abc");
-                TEST_ASSERT_EQ(simple_format("{{{{{{{{{{{{{{{{{{{{{{{{"), "{{{{{{{{{{{{{{{{{{{{{{{{");
-                TEST_ASSERT_EQ(simple_format("{{{{{{{{{{{{{{{{{{{{{{{{", 123), "{{{{{{{{{{{{{{{{{{{{{{{{");
-                TEST_ASSERT_EQ(simple_format("Test string that contain: {{}", 100, 1000), "Test string that contain: {100");
-                TEST_ASSERT_EQ(simple_format("vector<int>: {}", std::vector<int>{1, 2, 3, 4, 5, 6, 7, 8, 9}), "vector<int>: [1, 2, 3, 4, 5, 6, 7, 8, 9]");
-                TEST_ASSERT_EQ(simple_format("set<double>: {}", std::set<double>{1.2, 2.3, 3.4, 4.5}),
-                               sprintf_format("set<double>: {%f, %f, %f, %f}", 1.2, 2.3, 3.4, 4.5));
-                TEST_ASSERT_EQ(simple_format("map<string, string>: {}",
-                                             std::map<std::string, std::string>{{"key1", "value1"}, {"key2", "value2"}, {"key3", "value3"}}),
-                               "map<string, string>: {key1: value1, key2: value2, key3: value3}");
-                TEST_ASSERT_EQ(simple_format("enum with no stream operator: {}, {}", TestEnum1::A, TestEnum1::B), "enum with no stream operator: 1, 2");
-                TEST_ASSERT_EQ(simple_format("enum with stream operator: {}, {}", TestEnum2::X, TestEnum2::Y), "enum with stream operator: X, Y");
-            }
-        };
-    }// namespace test
+    // todo: thread local buffer for simple_format, reset ostream buffer with thread local buffer
+    // todo: float/double precision, eg: format: "{.2}"
 }// namespace libs
 
 #endif// LIBS_STRUTILS_H
