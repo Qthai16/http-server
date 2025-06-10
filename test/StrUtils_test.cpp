@@ -61,3 +61,20 @@ TEST(str_utils, simple_format) {
     ASSERT_EQ(simple_format("enum with no stream operator: {}, {}", TestEnum1::A, TestEnum1::B), "enum with no stream operator: 1, 2");
     ASSERT_EQ(simple_format("enum with stream operator: {}, {}", TestEnum2::X, TestEnum2::Y), "enum with stream operator: X, Y");
 }
+
+TEST(str_utils, from_hex_to_hex) {
+    using namespace libs;
+    std::string test("hello world");
+    ASSERT_EQ(libs::toHexStr(test.data(), test.size()), std::string{"68656c6c6f20776f726c64"});
+    std::string hexStr1("68656c6c6f20776f726c64");
+    std::string hexStr2("     68656c6c6f20776f726c64    ");
+    std::string hexStr3("68656C6C6F20776F726C64");
+    std::string hexStr4(" 68  65  6c 6c     6f2077 6f  72 6c 64  ");
+    std::vector<unsigned char> expected{0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x77, 0x6f, 0x72, 0x6c, 0x64};
+    std::string hexStr5("hg656c6c6f20776f726c64");
+    ASSERT_EQ(libs::fromHexStr(hexStr1.data(), hexStr1.size()), expected);
+    ASSERT_EQ(libs::fromHexStr(hexStr2.data(), hexStr2.size()), expected);
+    ASSERT_EQ(libs::fromHexStr(hexStr3.data(), hexStr3.size()), expected);
+    ASSERT_EQ(libs::fromHexStr(hexStr4.data(), hexStr4.size()), expected);
+    ASSERT_EQ(libs::fromHexStr(hexStr5.data(), hexStr5.size()), std::vector<unsigned char>{});
+}

@@ -22,15 +22,16 @@
 #include "TypeTraits.h"
 
 namespace libs {
-    inline std::string toHexStr(const char *buf, std::size_t size) {
+    inline std::string toHexStr(const char *buf, std::size_t size, char prefix = '\0') {
         if (expr_unlikely(!buf || !size))
             return {};
         std::size_t cnt = 0;
         char numbuf[32];
         std::stringstream ss;
+        if (prefix != '\0') ss.put(prefix);
         while (size-- > 0) {
-            // if (cnt++ > 0)
-            //     ss.put(' ');
+            if (cnt++ > 0)
+                if (prefix != '\0') ss.put(prefix);
             std::sprintf(numbuf, "%02x", *(unsigned char *) buf);
             ss << numbuf;
             buf++;
@@ -69,6 +70,28 @@ namespace libs {
 
     inline std::string &trim(std::string &s) {
         return ltrim(rtrim(s));
+    }
+
+    inline std::vector<unsigned char> fromHexStr(const char* buf, std::size_t size) {
+        if (expr_unlikely(!buf || !size))
+            return {};
+        std::string strbuf(buf, size);
+        to_lower(strbuf);
+        std::vector<unsigned char> ret;
+        unsigned int num = 0;
+        for (auto i = 0; i < size;) {
+            if (std::isspace(*(buf + i))) {
+                i++;
+                continue;
+            }
+            if (std::sscanf(buf + i, "%2x", &num) != 1) {
+                printf("invalid char\n");
+                return {};
+            }
+            ret.push_back(static_cast<unsigned char>(num));
+            i += 2;
+        }
+        return ret;
     }
 
     namespace detail {
