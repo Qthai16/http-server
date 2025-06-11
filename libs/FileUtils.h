@@ -17,6 +17,19 @@
 
 namespace libs {
 
+    class Defer final {
+    public:
+        explicit Defer(std::function<void()> &&fn) : fn_(std::move(fn)) {}
+        ~Defer() { fn_(); }
+        Defer(const Defer &) = delete;
+        Defer &operator=(const Defer &) = delete;
+        Defer(Defer&&) = delete;
+        Defer& operator=(Defer&&) = delete;
+
+    private:
+        std::function<void()> fn_;
+    };
+
     inline bool write(int fd, int64_t off, const void *buf, size_t size) {
         while (true) {
             ssize_t wb = ::pwrite(fd, buf, size, off);
@@ -36,7 +49,7 @@ namespace libs {
         return true;
     }
 
-    inline size_t read(int32_t fd, int64_t off, void *buf, size_t size) {
+    inline bool read(int32_t fd, int64_t off, void *buf, size_t size) {
         while (true) {
             ssize_t rb = ::pread(fd, buf, size, off);
             if (rb >= (ssize_t) size) {

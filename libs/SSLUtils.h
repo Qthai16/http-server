@@ -23,8 +23,6 @@
 #include <string_view>
 #endif
 
-// todo: sha256 using openssl
-
 namespace libs {
     namespace ssl {
         using ResultPair = std::pair<bool, std::string>;
@@ -115,6 +113,10 @@ namespace libs {
         std::string decode(std::string_view msg);
 #endif
     };// namespace base64
+
+    std::string key_from_str(const EVP_CIPHER *cipher, const std::string& str);
+    std::string rand_iv(const EVP_CIPHER *cipher);
+    std::string iv_from_int(const EVP_CIPHER *cipher, const std::vector<int>& vals);
 }// namespace libs
 
 #endif// LIBS_SSLUTILS_H

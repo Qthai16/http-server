@@ -4,10 +4,11 @@
 #include <string_view>
 #include <vector>
 #include <fstream>
+#include <cassert>
 
-#include "libs/SSLUtils.h"
-#include "libs/StrUtils.h"
-#include "libs/Defines.h"
+#include "SSLUtils.h"
+#include "Defines.h"
+#include "RandomUtils.h"
 
 namespace libs {
     namespace ssl {
@@ -241,4 +242,40 @@ namespace libs {
         }
 #endif
     };// namespace base64
+
+
+    std::string key_from_str(const EVP_CIPHER *cipher, const std::string& str) {
+        // key len can be 128, 192, or 256 bits (16, 24 or 32 bytes)
+        std::string key(EVP_CIPHER_key_length(cipher), '\0');
+        auto hashStr = hash_utils::sha256(str.data(), str.size());
+        for (auto i = 0; i < key.size(); i++) {
+            key[i] = hashStr[i];
+        }
+        return std::move(key);
+    }
+
+    std::string rand_iv(const EVP_CIPHER *cipher) {
+        // iv must be 128 bits (16 bytes)
+        std::string iv(EVP_CIPHER_iv_length(cipher), '\0');
+        for (auto i = 0; i < iv.size() / sizeof(int); i++) {
+            auto num = libs::random_num(0, std::numeric_limits<int>::max());
+            // printf("gen num: %x\n", num);
+            for (auto j = 0; j < sizeof(int) / sizeof(char); j++) {
+                iv[j + i * sizeof(int)] = 0xff & (num >> (32 - 8 * (j + 1)));
+            }
+        }
+        return std::move(iv);
+    }
+
+    std::string iv_from_int(const EVP_CIPHER *cipher, const std::vector<int>& vals) {
+        std::string iv(EVP_CIPHER_iv_length(cipher), '\0');
+        int num;
+        for (auto i = 0; i < iv.size() / sizeof(int); i++) {
+            num = i < vals.size() ? vals[i] : 0; // padding
+            for (auto j = 0; j < sizeof(int) / sizeof(char); j++) {
+                iv[j + i * sizeof(int)] = 0xff & (num >> (32 - 8 * (j + 1)));
+            }
+        }
+        return std::move(iv);
+    }
 }// namespace libs

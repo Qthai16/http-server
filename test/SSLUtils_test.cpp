@@ -32,3 +32,37 @@ TEST(ssl_utils, hash_test) {
     // auto val = hash_utils::sha256_file("/home/thaipq/proj/commondb/custom/cmake-build-debug/server");
     // std::cout << libs::toHexStr((const char*) val.data(), val.size()) << std::endl;
 }
+
+// todo: gcm mode and ccm mode (with authenticate message tags)
+// EVP_aes_256_gcm(), EVP_aes_256_ccm()
+
+TEST(ssl_utils, encrypt_decrypt) {
+    // openssl command
+    // key=`echo -n "my_sensitive_encryption_key" | sha256sum | cut -c1-64`
+    // iv=`printf "%08x%08x%08x%08x" 123 456 1000999 999888`
+    // echo -n "this is a secret data" | openssl enc -nosalt -aes-256-cbc -e -K $key -iv $iv -base64
+    // echo "<base64_encrypted>" | base64 --decode | openssl enc -nosalt -aes-256-cbc -d -K $key -iv $iv
+    std::string rawdata("this is a secret data");
+    auto testVals = std::map<const EVP_CIPHER *, std::string>{
+            {EVP_aes_256_cbc(), "dAST2VJ4xs0O6jGq4Gj5jEjZcsMF2xiNk3CZFKHLfs4=\n"},
+            {EVP_aes_128_ctr(), "mwJg9wqmx8kNy9FM+YTlzexcVeDb\n"}};
+    std::vector<int> intvals{123, 456, 1000999, 999888};
+    
+    for (const auto &pair: testVals) {
+        const auto &cipher = pair.first;
+        const auto &encryptedText = pair.second;
+        auto key = key_from_str(cipher, "my_sensitive_encryption_key");
+        auto iv = iv_from_int(cipher, intvals);
+        printf("key: %s\n", libs::toHexStr(key.data(), key.size()).c_str());
+        printf("iv: %s\n", libs::toHexStr(iv.data(), iv.size()).c_str());
+        // encrypt
+        auto encCipher = ssl::encrypt(cipher, rawdata, key, iv);
+        ASSERT_TRUE(encCipher.has_value());
+        std::string encValue = encCipher.value();
+        ASSERT_EQ(base64::encode(encValue), encryptedText);
+        // decrypt
+        auto decData = ssl::decrypt(cipher, encValue, key, iv);
+        ASSERT_TRUE(decData.has_value());
+        ASSERT_EQ(decData.value(), rawdata);
+    }
+}

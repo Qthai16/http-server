@@ -5,6 +5,8 @@
 
 #include "libs/StrUtils.h"
 
+using namespace libs;
+
 enum TestEnum1 {
     A = 1,
     B = 2,
@@ -34,7 +36,6 @@ static std::ostream &operator<<(std::ostream &os, const TestEnum2 &e) {
 }
 
 TEST(str_utils, simple_format) {
-    using namespace libs;
     ASSERT_EQ(simple_format("{} normal case: int: {}, double: {}, str: {}", "Start", 1000000, 124.23, std::string{"abcxyz"}),
               sprintf_format("%s normal case: int: %d, double: %f, str: %s", "Start", 1000000, 124.23, "abcxyz"));
     ASSERT_EQ(simple_format("More args than placeholder: {}, {}", "abc", 22.34f, "alfkjalfd"),
@@ -63,15 +64,16 @@ TEST(str_utils, simple_format) {
 }
 
 TEST(str_utils, from_hex_to_hex) {
-    using namespace libs;
     std::string test("hello world");
-    ASSERT_EQ(libs::toHexStr(test.data(), test.size()), std::string{"68656c6c6f20776f726c64"});
     std::string hexStr1("68656c6c6f20776f726c64");
     std::string hexStr2("     68656c6c6f20776f726c64    ");
     std::string hexStr3("68656C6C6F20776F726C64");
     std::string hexStr4(" 68  65  6c 6c     6f2077 6f  72 6c 64  ");
     std::vector<unsigned char> expected{0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x77, 0x6f, 0x72, 0x6c, 0x64};
     std::string hexStr5("hg656c6c6f20776f726c64");
+    auto val = libs::fromHexStr(libs::toHexStr(test));
+    ASSERT_EQ(test, std::string(val.begin(), val.end()));
+    ASSERT_EQ(libs::toHexStr(test.data(), test.size()), std::string{"68656c6c6f20776f726c64"});
     ASSERT_EQ(libs::fromHexStr(hexStr1.data(), hexStr1.size()), expected);
     ASSERT_EQ(libs::fromHexStr(hexStr2.data(), hexStr2.size()), expected);
     ASSERT_EQ(libs::fromHexStr(hexStr3.data(), hexStr3.size()), expected);
