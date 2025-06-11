@@ -17,8 +17,11 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <vector>
+
+#if __cplusplus >= 201703L
+#include <string_view>
+#endif
 
 // todo: sha256 using openssl
 
@@ -91,24 +94,23 @@ namespace libs {
         using HashVal = std::vector<unsigned char>;
 
         HashVal hash(const EVP_MD *method, const char *data, size_t len, size_t blocksize = 0);
+#if __cplusplus >= 201703L
         HashVal hash(const EVP_MD *method, std::string_view data);
+#endif
         HashVal hash_file(const EVP_MD *method, const char *filepath);
 
         HashVal sha256(const char *data, size_t len, size_t blocksize = 0);
         HashVal sha256_file(const char *filepath);
-        HashVal sha256_short(const char *data, size_t len, size_t outsize);
 
         HashVal sha1(const char *data, size_t len, size_t blocksize = 0);
         HashVal md5(const char *data, size_t len, size_t blocksize = 0);
     };// namespace hash_utils
 
     namespace base64 {
-        size_t decodeLen(const char *base64Inp, size_t len);
         std::string encode(const char *buffer, size_t length);
         std::string decode(const char *msg, size_t len);
 
 #if __cplusplus >= 201703L
-        size_t decodeLen(std::string_view input);
         std::string encode(std::string_view buffer);
         std::string decode(std::string_view msg);
 #endif

@@ -20,6 +20,8 @@
 
 #include "Defines.h"
 
+// todo: able to limit pending jobs, sleep if pending jobs is at max
+
 namespace libs {
     template<class T, class TQueue = std::queue<T>>
     class NotifyQueueWorker {

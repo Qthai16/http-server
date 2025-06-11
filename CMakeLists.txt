@@ -2,8 +2,15 @@ cmake_minimum_required(VERSION 3.16)
 
 project(http-server-from-scratch C CXX)
 
-# set(CMAKE_CXX_STANDARD 17)
-# set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# if (NOT DEFINED CMAKE_CXX_STANDARD)
+#   set(CMAKE_CXX_STANDARD 11) # C++11
+#   message(STATUS "Setting C++11 as the default language level.")
+#   message(STATUS "To specify a different C++ language level, set CMAKE_CXX_STANDARD")
+# endif()
 
 # uncomment to use clang build with sanitize address option
 # set(CMAKE_C_COMPILER /usr/bin/clang)
@@ -24,13 +31,14 @@ set(LINK_LIBS
 )
 
 # openssl
-option(USE_OPENSSL "set ON to build with OpenSSL" OFF)
+option(USE_OPENSSL "set ON to build with OpenSSL" ON)
 option(USE_LIBCURL "set ON to build with libcurl" OFF)
-option(ENABLE_TEST "set ON to build test" ON)
+option(BUILD_TEST "set ON to build test" ON)
 
 if (USE_OPENSSL)
     # libcurl4-openssl-dev
     find_package(OpenSSL REQUIRED)
+    # include_directories(SYSTEM "${OPENSSL_INCLUDE_DIR}")
     set(LINK_LIBS ${LINK_LIBS} ${OPENSSL_LIBRARIES})
     set(SRC_FILES ${SRC_FILES} libs/SSLUtils.cpp) # helper utils
 endif()
@@ -51,13 +59,16 @@ endif()
 # add_compile_options(-Wall -Wextra)
 add_compile_options("$<$<CONFIG:Debug>:-g>")
 add_compile_options("$<$<CONFIG:Release>:-w;-O3>")
-set_target_properties(http-server PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-)
 
+# add_definitions(-DOPTION_ABC)
 
 add_executable(http-server ${SRC_FILES})
+
+# set_target_properties(http-server PROPERTIES
+#     CXX_STANDARD 17
+#     CXX_STANDARD_REQUIRED ON
+# )
+
 target_include_directories(http-server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${OPENSSL_INCLUDE_DIR} # should check if enable by opt
@@ -72,30 +83,24 @@ target_link_libraries(http-server ${LINK_LIBS})
 #         ${CMAKE_BINARY_DIR}/static
 # )
 
-set(TEST_SRC
-    socket_pairs.cpp
-    libs/SSLUtils.cpp
-)
+# set(TEST_SRC
+#     socket_pairs.cpp
+#     libs/SSLUtils.cpp
+# )
 
-add_executable(socket_test
-    ${TEST_SRC}
-)
-target_include_directories(socket_test PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-target_link_libraries(socket_test pthread ssl crypto)
+# add_executable(socket_test
+#     ${TEST_SRC}
+# )
+# target_include_directories(socket_test PRIVATE
+#     ${CMAKE_CURRENT_SOURCE_DIR}
+# )
+# target_link_libraries(socket_test pthread ssl crypto)
 
-
-add_executable(join-thread test_joinable_thread.cpp)
-target_include_directories(join-thread PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-target_link_libraries(join-thread pthread ssl crypto)
-
-if (ENABLE_TEST)
+if (BUILD_TEST)
+    message(STATUS "Building tests")
+    enable_testing()
     add_subdirectory(test)
 endif()
-
 
 # if (OPENSSL_FOUND)
 #     # target_include_directories(http-server ${OPENSSL_INCLUDE_DIR})

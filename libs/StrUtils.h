@@ -22,29 +22,6 @@
 #include "TypeTraits.h"
 
 namespace libs {
-    inline std::string toHexStr(const char *buf, std::size_t size, char prefix = '\0') {
-        if (expr_unlikely(!buf || !size))
-            return {};
-        std::size_t cnt = 0;
-        char numbuf[32];
-        std::stringstream ss;
-        if (prefix != '\0') ss.put(prefix);
-        while (size-- > 0) {
-            if (cnt++ > 0)
-                if (prefix != '\0') ss.put(prefix);
-            std::sprintf(numbuf, "%02x", *(unsigned char *) buf);
-            ss << numbuf;
-            buf++;
-        }
-        return ss.str();
-    }
-
-#if __cplusplus >= 201703L
-    inline std::string toHexStr(std::string_view str) {
-        return toHexStr(str.data(), str.size());
-    }
-#endif
-
     inline void to_lower(std::string &s) {
         std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
     }
@@ -72,7 +49,24 @@ namespace libs {
         return ltrim(rtrim(s));
     }
 
-    inline std::vector<unsigned char> fromHexStr(const char* buf, std::size_t size) {
+    inline std::string toHexStr(const char *buf, std::size_t size, char prefix = '\0') {
+        if (expr_unlikely(!buf || !size))
+            return {};
+        std::size_t cnt = 0;
+        char numbuf[32];
+        std::stringstream ss;
+        if (prefix != '\0') ss.put(prefix);
+        while (size-- > 0) {
+            if (cnt++ > 0)
+                if (prefix != '\0') ss.put(prefix);
+            std::sprintf(numbuf, "%02x", *(unsigned char *) buf);
+            ss << numbuf;
+            buf++;
+        }
+        return ss.str();
+    }
+
+    inline std::vector<unsigned char> fromHexStr(const char *buf, std::size_t size) {
         if (expr_unlikely(!buf || !size))
             return {};
         std::string strbuf(buf, size);
@@ -93,6 +87,16 @@ namespace libs {
         }
         return ret;
     }
+
+#if __cplusplus >= 201703L
+    inline std::string toHexStr(std::string_view str) {
+        return toHexStr(str.data(), str.size());
+    }
+
+    inline std::vector<unsigned char> fromHexStr(std::string_view buf) {
+        return fromHexStr(buf.data(), buf.size());
+    }
+#endif
 
     namespace detail {
         template<typename T, typename Trait>

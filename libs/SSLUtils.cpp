@@ -200,57 +200,38 @@ namespace libs {
     }// namespace hash_utils
 
     namespace base64 {
-        size_t decodeLen(const char *input, size_t len) {
-            if (input == nullptr || !len)
-                return 0;
-            size_t padding = 0;
-            if (input[len - 1] == '=' && input[len - 2] == '=') {
-                padding = 2;
-            } else if (input[len - 1] == '=') {
-                padding = 1;
-            }
-            return len * 3 / 4 - padding;
-        }
-
         std::string encode(const char *buffer, size_t length) {
-            // should check for memory free after use
+            // todo: check error code
             BIO *bio, *b64;
             BUF_MEM *bufferPtr;
             b64 = BIO_new(BIO_f_base64());
             bio = BIO_new(BIO_s_mem());
+            BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);
             bio = BIO_push(b64, bio);
             BIO_write(bio, buffer, length);
             BIO_flush(bio);
             BIO_get_mem_ptr(bio, &bufferPtr);
             BIO_set_close(bio, BIO_NOCLOSE);
+            std::string ret(bufferPtr->data, bufferPtr->length);
             BIO_free_all(bio);
-            return std::string(bufferPtr->data, bufferPtr->length);
+            return ret;
         }
 
         std::string decode(const char *msg, size_t msgLen) {
-            auto outLen = decodeLen(msg);
-            if (outLen <= 0)
-                return {};
-            std::string ret(outLen, '\0');
-            BIO *bio = BIO_new_mem_buf(msg, -1);
+            // todo: check error code
+            if (!msg || !msgLen) return {};
+            std::string ret(msgLen, '\0');
+            BIO *bio = BIO_new_mem_buf(msg, msgLen);
             BIO *base64 = BIO_new(BIO_f_base64());
             bio = BIO_push(base64, bio);
-            BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);// Do not use newlines to flush buffer
-            if (BIO_read(bio, ret.data(), msgLen) != outLen) {
-                // logError("Invalid base64 decode length", errno);
-                BIO_free_all(bio);
-                return {};
-            }
+            BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);// no newline
+            auto outLen = BIO_read(bio, ret.data(), msgLen);
             BIO_free_all(bio);
             ret.resize(outLen);
             return ret;
         }
 
 #if __cplusplus >= 201703L
-        size_t decodeLen(std::string_view input) {
-            return decodeLen(input.data(), input.size());
-        }
-
         std::string encode(std::string_view buffer) {
             return encode(buffer.data(), buffer.size());
         }
