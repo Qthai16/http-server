@@ -50,10 +50,13 @@ gtest_discover_tests(test-libs)
 
 # todo: test http server
 # add_executable(test-http-server)
-
+# set_tests_properties(test-http-server PROPERTIES LABELS "integrate")
+# add_test(NAME test-http-server COMMAND test-http-server 0.0.0.0 11225)
 
 
 # todo: benchmark http server throughput
 # add_executable(benchmark-http-server)
 
 add_test(NAME test-libs COMMAND test-libs)
+set_tests_properties(test-libs PROPERTIES LABELS "unit")
+
