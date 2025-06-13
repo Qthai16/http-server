@@ -18,7 +18,13 @@
 #include <unordered_map>
 
 #include <chrono>
+#if __cplusplus >= 201703L
 #include <filesystem>
+namespace fs = std::filesystem;
+#else
+#include <boost/filesystem.hpp>
+namespace fs = boost::filesystem;
+#endif
 
 #include "src/HttpMessage.h"
 #ifdef USE_OPENSSL
@@ -26,51 +32,48 @@
 #endif
 #include "src/SimpleServer.h"
 
-using namespace HttpMessage;
+#include "libs/StrUtils.h"
+
 using namespace std::placeholders;
+using namespace simple_http;
 
 #define THREADPOOL_SIZE 4
-namespace fs = std::filesystem;
 
 #define Q(x)                      #x
 #define ASSERT_EQ(first, second)  assert(first == second)
 #define ASSERT_NEQ(first, second) assert(first != second)
 
-static void SendStaticFile(std::string path, const HttpMessage::HTTPRequest &req, HttpMessage::HTTPResponse &response) {
-    response._version = req._version;
-    response._headers["Connection"] = "keep-alive";
+static void SendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *response) {
+    // response->_version = req._version;
+    response->insert_header({"Connection", "keep-alive"});
 
     if (!fs::exists(path)) {
         // send 404 not found
         std::string sendData = R"JSON({"errors": "resource not found"})JSON";
-        response.status_code(HTTPStatusCode::NotFound);
-        response.set_str_body(sendData);
-        response._headers = {{
-                {"Content-Type", "application/json"},
-        }};
+        response->status_code(HTTPStatusCode::NotFound);
+        response->set_str_body(sendData);
+        response->insert_header({"Content-Type", "application/json"});
         return;
     }
     std::ifstream file(path);
     if (!file.is_open()) {
         // send internal error
         std::string sendData = R"JSON({"errors": "failed to open file"})JSON";
-        response.status_code(HTTPStatusCode::InternalServerError);
-        response.set_str_body(sendData);
-        response._headers = {{
-                {"Content-Type", "application/json"},
-        }};
+        response->status_code(HTTPStatusCode::InternalServerError);
+        response->set_str_body(sendData);
+        response->insert_header({"Content-Type", "application/json"});
         return;
     }
     file.close();// close here bc HTTPResponse will open this file
 
     auto extension = fs::path(path).extension().string();
-    if (SimpleServer::_mimeTypes.count(extension)) {
-        response._headers["Content-Type"] = SimpleServer::_mimeTypes.at(extension);
+    if (simple_http::_mimeTypes.count(extension)) {
+        response->insert_header({"Content-Type", simple_http::_mimeTypes.at(extension)});
     } else {
-        response._headers["Content-Type"] = "application/octet-stream";// default for others
+        response->insert_header({"Content-Type", "application/octet-stream"});// default for others
     }
-    response.status_code(HTTPStatusCode::OK);
-    response.set_file_body(path);
+    response->status_code(HTTPStatusCode::OK);
+    response->set_file_body(path);
 }
 
 static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
@@ -93,27 +96,26 @@ static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
     return handlersMap;
 }
 
-static void HandlePostForm(const HttpMessage::HTTPRequest &req, HttpMessage::HTTPResponse &res) {
+static void HandlePostForm(HTTPRequest *req, HTTPResponse *res) {
     static int inc = 0;
     // auto filename = req.content_filename();
-    auto filename = req.get_header("filename");
+    auto filename = req->get_header("filename");
     if (!filename.empty()) {
-        std::ofstream outputFile(Utils::simple_format("post-file/{}-{}", filename, ++inc));
+        std::ofstream outputFile(libs::simple_format("post-file/{}-{}", filename, ++inc));
         if (outputFile.is_open()) {
-            outputFile << req._bufferStream.str();
+            outputFile << req->_body.str();
         }
     }
     std::string sendData = R"JSON({"results": "upload form successfully"})JSON";
-    res._version = req._version;
-    res._headers["Content-Type"] = "application/json";
-    res.status_code(HTTPStatusCode::OK);
-    res.set_str_body(sendData);
+    // res._version = req._version;
+    res->insert_header({"Content-Type", "application/json"});
+    res->status_code(HTTPStatusCode::OK);
+    res->set_str_body(sendData);
 }
 
 using namespace std::string_literals;
-using std::cout, std::endl;
-using std::string, std::map, std::tuple;
-using namespace Utils;
+// using std::cout, std::endl;
+// using std::string, std::map, std::tuple;
 
 auto g_test_GET_request = R"TEST(GET / HTTP/1.1
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
@@ -136,6 +138,11 @@ Expect: 100-continue)TEST";
 
 auto g_test_requests = {g_test_GET_request, g_test_POST_request};
 
+#include <signal.h>
+#include "libs/OSUtils.h"
+extern "C" void signalHandler(int signum) {
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 3) {
         std::cerr << "Usage: [executable] <address> <port> \n";
@@ -145,19 +152,31 @@ int main(int argc, char *argv[]) {
     auto port = stoi(std::string{argv[2]});
 
     SimpleServer server(address, port, THREADPOOL_SIZE);
-    // clang-format off
-  server.AddHandlers({
-    {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
-    {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2)}},
-    {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2)}},
-    {"/file", {HTTPMethod::PUT, &HandlePostForm}},
-    {"/abc", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/OPSWAT.ico", _1, _2)}}
-    // {"/static/css/main.b52b0c83.chunk.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/static/css/main.b52b0c83.chunk.css", _1, _2, _3)}}
-  });
-    // clang-format on
-    auto staticResMap = ServeStaticResources("react-build");
-    server.AddHandlers(staticResMap);
-    server.Start();
-    server.Listen();
+    server.addHandlers({
+            {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
+            // {"/[a-zA-z0-9_-].+", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
+            {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2)}},
+            {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2)}},
+            {"/file", {HTTPMethod::PUT, &HandlePostForm}},
+            {"/abc", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/OPSWAT.ico", _1, _2)}}
+    });
+    auto staticResMap = ServeStaticResources("static");
+    server.addHandlers(staticResMap);
+    server.start();
+    signal(SIGTERM, signalHandler);
+    signal(SIGINT, signalHandler);
+    signal(SIGQUIT, signalHandler);
+    std::atomic_bool stopPrint{false};
+    std::thread statPrinter([&stopPrint, &server](){
+        while (!stopPrint.load(std::memory_order_acquire)) {
+            server.printConnStat();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    });
+    // server.Listen();
+    libs::waitForTerminationRequest();
+    stopPrint.store(true);
+    server.stop();
+    statPrinter.join();
     return 0;
 }

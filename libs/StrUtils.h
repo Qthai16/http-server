@@ -17,9 +17,12 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
+#include <cstdarg>
 
 #include "Defines.h"
 #include "TypeTraits.h"
+
+// todo: split string
 
 namespace libs {
     inline void to_lower(std::string &s) {
@@ -307,6 +310,59 @@ namespace libs {
         vsprintf(buffer, format, args);
         va_end(args);
         return {buffer};
+    }
+
+    inline std::vector<std::string> split_str(const std::string &text, const std::string &delimeters) {
+        std::size_t start = 0, end, delimLen = delimeters.length();
+        std::string token;
+        std::vector<std::string> results;
+
+        while ((end = text.find(delimeters, start)) != std::string::npos) {
+            token = text.substr(start, end - start);
+            start = end + delimLen;
+            results.push_back(token);
+        }
+
+        results.push_back(text.substr(start));
+        return results;
+    }
+
+
+    inline std::size_t content_length(std::istream &iss) {
+        if (iss.bad())
+            return 0;
+        iss.seekg(0, std::ios_base::end);
+        auto size = iss.tellg();
+        iss.seekg(0, std::ios_base::beg);
+        return size;
+    }
+
+    inline std::size_t content_length(std::ostream &oss) {
+        if (oss.bad())
+            return 0;
+        oss.seekp(0, std::ios_base::end);
+        auto size = oss.tellp();
+        oss.seekp(0, std::ios_base::beg);
+        return size;
+    }
+
+    inline std::string copy_stream_buf(std::istream &input) {
+        if (input.fail())
+            return "";
+        std::stringstream buffer;
+        buffer << input.rdbuf();
+        return buffer.str();
+    }
+
+    inline const char* view_stream_buf(std::istream &input) {
+        // todo:
+        return nullptr;
+    }
+
+    inline bool str_iequals(const std::string &s1, const std::string &s2) {
+        return std::equal(s1.begin(), s1.end(), s2.begin(), s2.end(), [](char a, char b) {
+            return tolower(a) == tolower(b);
+        });
     }
 
     // todo: thread local buffer for simple_format, reset ostream buffer with thread local buffer

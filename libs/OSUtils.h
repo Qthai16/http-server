@@ -55,6 +55,16 @@ namespace libs {
         int sig;
         ::sigwait(&sset, &sig);
     }
+
+    // std::atomic_int gSignalVal{-1};
+    // extern "C" void signalHandler(int signum) {
+    //     gSignalVal.store(signum);
+    // }
+    // void useSignal() {
+    //     signal(SIGTERM, signalHandler);
+    //     signal(SIGINT, signalHandler);
+    //     signal(SIGQUIT, signalHandler);
+    // }
 }// namespace libs
 
 

@@ -2,9 +2,11 @@ cmake_minimum_required(VERSION 3.16)
 
 project(http-server-from-scratch C CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+# set(CMAKE_CXX_STANDARD 17)
+# set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# set(CMAKE_CXX_EXTENSIONS OFF)
 
 # if (NOT DEFINED CMAKE_CXX_STANDARD)
 #   set(CMAKE_CXX_STANDARD 11) # C++11
@@ -21,7 +23,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(Threads REQUIRED)
 
 set(SRC_FILES
-    test.cpp
     src/HttpMessage.cpp
     src/SimpleServer.cpp
 )
@@ -33,14 +34,14 @@ set(LINK_LIBS
 # openssl
 option(USE_OPENSSL "set ON to build with OpenSSL" ON)
 option(USE_LIBCURL "set ON to build with libcurl" OFF)
-option(BUILD_TEST "set ON to build test" ON)
+option(BUILD_TEST "set ON to build test" ON) # todo: compile bug
 
 if (USE_OPENSSL)
     # libcurl4-openssl-dev
     find_package(OpenSSL REQUIRED)
     # include_directories(SYSTEM "${OPENSSL_INCLUDE_DIR}")
-    set(LINK_LIBS ${LINK_LIBS} ${OPENSSL_LIBRARIES})
-    set(SRC_FILES ${SRC_FILES} libs/SSLUtils.cpp) # helper utils
+    # set(LINK_LIBS ${LINK_LIBS} ${OPENSSL_LIBRARIES})
+    # set(SRC_FILES ${SRC_FILES} libs/SSLUtils.cpp) # helper utils
 endif()
 
 if (USE_LIBCURL)
@@ -48,6 +49,11 @@ if (USE_LIBCURL)
     find_package(CURL REQUIRED)
     set(LINK_LIBS ${LINK_LIBS} ${CURL_LIBRARIES})
 endif()
+
+include(BoostMacros)
+REQUIRE_BOOST_HEADERS()
+set(BOOST_COMPONENTS filesystem)
+REQUIRE_BOOST_LIBRARIES(BOOST_COMPONENTS)
 
 
 # old approach
@@ -62,7 +68,11 @@ add_compile_options("$<$<CONFIG:Release>:-w;-O3>")
 
 # add_definitions(-DOPTION_ABC)
 
-add_executable(http-server ${SRC_FILES})
+# todo: chuyen logic start server thanh lib???
+add_executable(http-server
+    test.cpp
+    ${SRC_FILES}
+)
 
 # set_target_properties(http-server PROPERTIES
 #     CXX_STANDARD 17
@@ -74,7 +84,7 @@ target_include_directories(http-server PRIVATE
     ${OPENSSL_INCLUDE_DIR} # should check if enable by opt
     ${CURL_INCLUDE_DIR} # should check if enable by opt
 )
-target_link_libraries(http-server ${LINK_LIBS})
+target_link_libraries(http-server ${LINK_LIBS} ${Boost_LIBRARIES})
 
 
 # add_custom_command(TARGET http-server POST_BUILD

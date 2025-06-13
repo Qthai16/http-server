@@ -7,10 +7,9 @@
 #include <map>
 #include <string>
 #include <algorithm>
+#include <streambuf>
 
-#include "Utils.h"
-
-namespace HttpMessage {
+namespace simple_http {
     using HeadersMap = std::map<std::string, std::string>;
 
     enum class HTTPMethod {
@@ -66,21 +65,110 @@ namespace HttpMessage {
     HTTPMethod str_to_method(const std::string &str);
     std::string headers_get_field(const HeadersMap &headers, std::string key);
 
-    struct HTTPResponse {
+    class MemBuf {
+    public:
+        enum class Ownership {
+            VIEW,
+            OWN,
+        };
+
+    public:
+        MemBuf() : buf_(nullptr), wrPos_(0), rdPos_(0), size_(0), ownType_(Ownership::VIEW) {}
+        explicit MemBuf(std::size_t size) : buf_(nullptr), wrPos_(0), rdPos_(0), size_(size), ownType_(Ownership::OWN) {
+            buf_ = (char *) malloc(size);
+        }
+        ~MemBuf() {
+            cleanup();
+        }
+
+        void cleanup() {
+            if (ownType_ == Ownership::OWN) {
+                free(buf_);
+            }
+            buf_ = nullptr;
+            size_ = 0;
+        }
+
+        size_t write(const char *data, size_t len) {
+            if (data == nullptr || len == 0)
+                return 0;
+            if (wrPos_ + len >= size_) {
+                auto newsize = size_ * 2;
+                auto newbuf = (char *) realloc(buf_, newsize);
+                if (buf_ != newbuf) {
+                    memcpy(newbuf, buf_, wrPos_);
+                }
+                buf_ = newbuf;
+                size_ = newsize;
+            }
+            memcpy(buf_ + wrPos_, data, len);
+            wrPos_ += len;
+            return len;
+        }
+
+        size_t read(char *outbuf, size_t len) {
+            if (outbuf == nullptr || len == 0)
+                return 0;
+            if (rdPos_ >= wrPos_)
+                return 0;
+            if (len > wrPos_ - rdPos_)
+                len = wrPos_ - rdPos_;
+            memcpy(outbuf, buf_ + rdPos_, len);
+            rdPos_ += len;
+            return len;
+        }
+
+        void increaseWr(size_t cnt) {
+            wrPos_ += cnt;
+        }
+
+        void get_view(char **data, size_t *len) {
+            *data = buf_ + rdPos_;
+            *len = wrPos_ - rdPos_;
+        }
+
+        char* rawbuf() {
+            return buf_;
+        }
+
+        size_t cap() const {
+            return size_;
+        }
+
+        void resetBuf() {
+            wrPos_ = 0;
+            rdPos_ = 0;
+        }
+
+        void resetBuf(char *outbuf, size_t len) {// view only
+            cleanup();
+            buf_ = outbuf;
+            size_ = len;
+            wrPos_ = 0;
+            rdPos_ = 0;
+            ownType_ = Ownership::VIEW;
+        }
+
+    private:
+        char *buf_;
+        size_t wrPos_;
+        size_t rdPos_;
+        size_t size_;
+        Ownership ownType_;
+    };
+
+    struct BufferType {
+        char *buf;
+        size_t len;
+    };
+
+    class HTTPResponse {
+    public:
         enum class ReadType {
             UNINIT = -1,
             FILE_READ = 0,
             IN_MEMORY_READ = 1
         };
-        HTTPVersion _version;
-        HTTPStatusCode _statusCode;
-        HeadersMap _headers;
-        std::ifstream _body;// bad, should refactor later
-        std::stringstream _inMemoryBody;
-        ReadType _readType;
-        bool _finishWriteHeader;
-        std::size_t _totalWrite;
-        std::size_t _contentLength;
 
         HTTPResponse();
         ~HTTPResponse();
@@ -88,26 +176,38 @@ namespace HttpMessage {
         const HTTPResponse &operator=(const HTTPResponse &other) = delete;
         HTTPResponse(HTTPResponse &&other);
 
-        std::size_t serialize_header(char *buffer, std::size_t bufferSize);
-        std::size_t serialize_body(std::istream &is, char *buffer, std::size_t bufferSize, std::size_t headerSize);
-        std::size_t serialize_reponse(char *buffer, std::size_t bufferSize);
+    public:                                                                 // for server and io worker
+        std::size_t serialize_reponse(char *buffer, std::size_t bufferSize);// todo: this should return Buffer{const char* data, size_t len} (view only data)
+        bool writeDone() const;
+        void resetData();
+
+    public:// for handler
         void status_code(HTTPStatusCode statusCode);
         void set_str_body(const std::string &content);
         void set_file_body(std::string path);
+        void insert_header(std::pair<std::string, std::string> val);
+
+    private:
+        std::size_t serialize_header(char *buffer, std::size_t bufferSize);
+        std::size_t serialize_body(std::istream &is, char *buffer, std::size_t bufferSize);
+
+    private:
+        HTTPVersion _version;
+        HTTPStatusCode _statusCode;
+        HeadersMap _headers;
+        std::ifstream _body;// bad, should refactor later
+        std::stringstream _inMemoryBody;
+
+        std::string memBody_;
+        int fileFd_;
+        int64_t fileOff_;
+        ReadType _readType;
+        bool _finishWriteHeader;
+        std::size_t _totalWrite;
+        std::size_t _contentLength;
     };
 
     struct HTTPRequest {
-        HTTPVersion _version;
-        HTTPMethod _method;
-        HeadersMap _headers;
-        HeadersMap _queryParams;
-        std::string _path;
-        std::stringstream _bufferStream;
-        std::size_t _totalRead;
-        std::size_t _contentLength;
-        bool _expectContinue;
-        bool _finishParseHeaders;
-
         HTTPRequest();
         ~HTTPRequest() = default;
 
@@ -116,13 +216,27 @@ namespace HttpMessage {
         std::string content_filename() const;
         bool expect_100_continue() const;
         bool request_completed() const;
+        bool have_expect_continue() const;
+        void resetData();
 
         void parse_query_params(const std::string &path);
-        std::streampos parse_headers(std::istream &is);
-        std::size_t parse_request(std::ostream &os, char *buffer, std::size_t bytesCount);
+        std::size_t parse_headers(const char *buffer, std::size_t bufsize);
+        std::size_t parse_request(char *buffer, std::size_t bytesCount);
+        BufferType parse_request(MemBuf *membuf);
         // for debug and logging
         std::string to_string(std::ostream &os = std::cout);
         std::string to_json(std::ostream &os = std::cout);
+
+        HTTPVersion _version;
+        HTTPMethod _method;
+        HeadersMap _headers;
+        HeadersMap _queryParams;
+        std::string _path;
+        std::stringstream _body;
+        std::size_t _totalRead;
+        std::size_t _contentLength;
+        bool _expectContinue;
+        bool _finishParseHeaders;
     };
 
-}// namespace HttpMessage
+}// namespace simple_http
