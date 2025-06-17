@@ -54,10 +54,10 @@ TEST(file_utils, read_write) {
     ASSERT_EQ(::fstat(fd, &st), 0);
     if (st.st_size > 0) readBuf.resize(st.st_size);
     printf("read data from %s\n", infile);
-    ASSERT_TRUE(libs::read(fd, 0, readBuf.data(), readBuf.size()));
+    ASSERT_EQ(libs::read(fd, 0, readBuf.data(), readBuf.size()), readBuf.size());
     ASSERT_EQ(readBuf, data);
-    ASSERT_TRUE(libs::write(fd2, 0, readBuf.data(), readBuf.size()));
+    ASSERT_EQ(libs::write(fd2, 0, readBuf.data(), readBuf.size()), readBuf.size());
     std::string readBuf2(readBuf.size(), '\0');
-    ASSERT_TRUE(libs::read(fd2, 0, readBuf2.data(), readBuf2.size()));
+    ASSERT_EQ(libs::read(fd2, 0, readBuf2.data(), readBuf2.size()), readBuf2.size());
     ASSERT_EQ(readBuf2, readBuf);
 }

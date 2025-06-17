@@ -31,42 +31,48 @@ namespace libs {
         std::function<void()> fn_;
     };
 
-    inline bool write(int fd, int64_t off, const void *buf, size_t size) {
+    inline ssize_t write(int fd, int64_t off, const void *buf, size_t size) {
+        ssize_t ret = 0;
         while (true) {
             ssize_t wb = ::pwrite(fd, buf, size, off);
             if (wb >= (ssize_t) size) {
-                return true;
+                ret += wb;
+                break;
             } else if (wb > 0) {
                 buf = (char *) buf + wb;
                 size -= wb;
                 off += wb;
+                ret += wb;
             } else if (wb == -1) {
                 if (errno != EINTR)
-                    return false;
+                    return 0;
             } else if (size > 0) {
-                return false;
+                return 0;
             }
         }
-        return true;
+        return ret;
     }
 
-    inline bool read(int32_t fd, int64_t off, void *buf, size_t size) {
+    inline ssize_t read(int32_t fd, int64_t off, void *buf, size_t size) {
+        ssize_t ret = 0;
         while (true) {
             ssize_t rb = ::pread(fd, buf, size, off);
             if (rb >= (ssize_t) size) {
+                ret += rb;
                 break;
             } else if (rb > 0) {
                 buf = (char *) buf + rb;
                 size -= rb;
                 off += rb;
+                ret += rb;
             } else if (rb == -1) {
                 if (errno != EINTR)
-                    return false;
+                    return ret;
             } else {
-                return false;
+                return ret;
             }
         }
-        return true;
+        return ret;
     }
 
     inline int makeDir(const char *dir, int mode = S_IRWXU) {
