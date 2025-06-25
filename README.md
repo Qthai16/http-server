@@ -10,20 +10,22 @@
 #### Build
 ```sh
     cd <project_src> && mkdir build && cd build
-    cmake .. -DCMAKE_BUILD_TYPE=Release
-    make -j 4
+    cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DUSE_OPENSSL=On -DBUILD_TEST=On ..
+    ninja
 ```
 #### Run
 ```sh
     [executable_path] <address> <port>
 ```
+
+#### Library test
+- Run all test: 
+```sh
+    ctest --output-on-failure -j 4
+```
+- Run unit test or integration test only, add flag "-L unit" or "-L intergrate"
+
 #### Benchmark test
 ```sh
    ./benchmark.sh 2>&1 | tee benchmark-result.txt
 ```
-
-#### openssl: symmetric AES256-CFB128 encryption
-#### base64 encode/decode
-#### save private key/public key in source code using runtime xor/compile xor
-#### TODO: implement HTTP multipart/form-data
-#### TODO: implement websocket upgrading

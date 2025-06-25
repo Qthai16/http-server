@@ -8,10 +8,10 @@
             "name": "Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceRoot}/build/http-server-from-scratch",
-            "args": ["127.0.0.1", "11225"],
+            "program": "${workspaceRoot}/cmake-build-debug/http-server",
+            "args": ["0.0.0.0", "11225"],
             "stopAtEntry": false,
-            "cwd": "${workspaceRoot}/build",
+            "cwd": "${workspaceRoot}/cmake-build-debug",
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [

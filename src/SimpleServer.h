@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <memory>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -21,124 +22,237 @@
 #include <unistd.h>
 
 #include "HttpMessage.h"
-#include "Utils.h"
 
-#define BUFFER_SIZE 4096
-#define QUEUEBACKLOG 100
-#define MAX_EPOLL_EVENTS 800
+#include "libs/WorkerPool.h"
 
-using namespace std::chrono;
-using namespace std::chrono_literals;
-using namespace HttpMessage;
+#define BUFFER_SIZE      8192
+#define QUEUEBACKLOG     100
+#define MAX_EPOLL_EVENTS 100
 
-struct EpollHandle {
-  struct EventData {
-    int _fd;
-    char _eventBuffer[BUFFER_SIZE];
-    HTTPRequest* _request;
-    HTTPResponse* _response;
+namespace simple_http {
 
-    EventData() :
-        _fd(0), _eventBuffer(), _request(nullptr), _response(nullptr){};
-    EventData(int fd) :
-        _fd(fd), _eventBuffer(), _request(new HTTPRequest()), _response(new HTTPResponse(fd)){};
-
-    // ~EventData() { close(_fd); }
-    ~EventData() {
-      if(_request)
-        delete _request;
-      if(_response)
-        delete _response;
+    extern std::map<std::string, std::string> _mimeTypes;
+    enum class EventType {
+        UNINIT = 0,
+        CONN_IO,
+        PAIR_IO,
+        ACCEPTOR,
     };
-  };
+    struct EventBase {
+        int _fd;
+        EventType _type;
+        char _eventBuffer[BUFFER_SIZE];
+        std::size_t _bytesInBuffer;
+        std::size_t bufferCap_;
 
-  int _epollFd;
-  epoll_event events[MAX_EPOLL_EVENTS];
+        EventBase() : _fd(-1), _type(EventType::UNINIT), _eventBuffer(), _bytesInBuffer(0), bufferCap_(0) {}
+        EventBase(int fd, EventType type) : _fd(fd), _type(type), _eventBuffer(), _bytesInBuffer(0), bufferCap_(BUFFER_SIZE) {
+            // _eventBuffer = (char *) malloc(BUFFER_SIZE);
+        }
+        virtual ~EventBase() {
+            // if (_eventBuffer) {
+            //     free(_eventBuffer);
+            //     _eventBuffer = nullptr;
+            // }
+            // ::close(_fd); // this fd should be close in io thread
+        }
 
-  EpollHandle() :
-      _epollFd(-1), events() {}
-  ~EpollHandle() {
-    // close(_epollFd);
-  }
+        void resetBuffer() {
+            memset(_eventBuffer, 0, bufferCap_);
+        }
+    };
+    struct PairEventData : public EventBase {
+        PairEventData(int fd) : EventBase(fd, EventType::PAIR_IO) {}
+    };
 
-  void create_epoll() {
-    _epollFd = epoll_create1(0);
-    if(_epollFd == -1) {
-      std::cerr << "failed to create epoll" << std::endl;
-      throw std::runtime_error("failed to create epoll");
-    }
-  }
+    struct ConnData : public EventBase {
+        HTTPRequest *req;
+        HTTPResponse *res;
+        std::pair<std::string, int> addr;
 
-  void add_or_modify_fd(int clientFd, int eventType, int opt, EventData* eventData) {
-    if(eventData == nullptr) {
-      throw std::runtime_error("event data is null");
-      return;
-    }
-    epoll_event event;
-    event.data.fd = clientFd;
-    event.events = eventType;
-    event.data.ptr = (void*)eventData;
-    if(epoll_ctl(_epollFd, opt, clientFd, &event) == -1) {
-      std::cout << "failed to add/modify fd: " << strerror(errno) << std::endl;
-      throw std::runtime_error("failed to add/modify fd");
-    }
-  }
+        ConnData() : EventBase(-1, EventType::CONN_IO), req(nullptr), res(nullptr) {}
+        ConnData(int fd) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse()) {}
 
-  void delete_fd(int clientFd) {
-    if(epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, nullptr) == -1) {
-      throw std::runtime_error("failed to delete fd");
-    }
-    // close(clientFd);
-  }
-};
+        // todo: add method init(int clientfd) {
+        // set fd
+        // reset http req
+        // reset http res
+        // }
 
+        ~ConnData() {
+            cleanupReq();
+            cleanupRes();
+        }
 
-class SimpleServer {
-public:
-  using URLFormat = std::string;
-  using HandlerFunction = std::function<void(int, const HttpMessage::HTTPRequest&, HttpMessage::HTTPResponse&)>;
-  using HandlersMap = std::unordered_map<URLFormat, std::pair<HTTPMethod, HandlerFunction>>;
+        void resetData() {
+            resetBuffer();
+            req->resetData();
+            res->resetData();
+        }
 
-private:
-  std::string _address;
-  unsigned int _port;
-  std::size_t _poolSize;
-  HandlersMap _handlersMap;
-  int _serverFd;
-  std::atomic_bool _stop;
-  std::chrono::milliseconds _sleepTimes;
-  std::vector<EpollHandle> _epollHandles;
-  std::vector<std::thread> _workersPool;
+        void cleanup() {
+            cleanupReq();
+            cleanupRes();
+        }
 
-private:
-  void* IPAddressParse(struct sockaddr* sa);
-  HandlersMap::const_iterator get_registered_path(std::string path, bool exactMatch = true);
-  void HandleClientConnections(EpollHandle& epollHandle);
-  void HandleEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr, uint32_t eventType);
-  void HandleReadEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr);
-  void HandleWriteEvent(EpollHandle& epollHandle, EpollHandle::EventData* eventDataPtr);
+        void cleanupReq() {
+            if (req == nullptr)
+                return;
+            delete req;
+            req = nullptr;
+        }
 
-public:
-  static inline std::map<std::string, std::string> _mimeTypes = {
-      {".js", "text/javascript"},
-      {".txt", "text/plain"},
-      {".html", "text/html"},
-      {".htm", "text/html"},
-      {".svg", "image/svg+xml"},
-      {".png", "image/png"},
-      {".jpg", "image/jpeg"},
-      {".jpeg", "image/jpeg"},
-      {".css", "text/css"}};
+        void cleanupRes() {
+            if (res == nullptr)
+                return;
+            delete res;
+            res = nullptr;
+        }
 
-public:
-  SimpleServer() = default;
-  ~SimpleServer();
-  SimpleServer(std::string address, unsigned int port, std::size_t poolSize = 1);
+        void initResponse() {
+            cleanupRes();
+            res = new HTTPResponse();
+        }
 
-  void Start();
-  void Listen();
-  void Stop();
+        void initRequest() {
+            cleanupReq();
+            req = new HTTPRequest();
+        }
+    };
+    // using EventHandler = std::function<void(ConnData *)>;
 
-  void AddHandlers(HandlersMap handlers);
-  void AddHandlers(URLFormat path, HttpMessage::HTTPMethod method, HandlerFunction fn);
-};
+    struct EpollHandle {
+        EpollHandle() : _epollFd(-1), events() {}
+        ~EpollHandle() {
+            ::close(_epollFd);
+        }
+
+        void init() {
+            _epollFd = epoll_create1(0);
+            if (_epollFd == -1) {
+                std::cerr << "failed to create epoll" << std::endl;
+                throw std::runtime_error("failed to create epoll");
+            }
+        }
+
+        void add_or_modify_fd(int clientFd, int eventType, int opt, EventBase *eventData) {
+            assert(eventData);
+            struct epoll_event event;
+            event.data.fd = clientFd;
+            event.events = eventType;
+            event.data.ptr = eventData;
+            if (epoll_ctl(_epollFd, opt, clientFd, &event) == -1) {
+                std::cout << "failed to add/modify fd: " << strerror(errno) << std::endl;
+                throw std::runtime_error("failed to add/modify fd");
+            }
+        }
+
+        void delete_fd(int clientFd) {
+            if (epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, nullptr) == -1) {
+                throw std::runtime_error("failed to delete fd");
+            }
+            // close(clientFd);
+        }
+
+        int _epollFd;
+        epoll_event events[MAX_EPOLL_EVENTS];
+    };
+    class SimpleServer;
+    class Acceptor {
+    public:
+        Acceptor(SimpleServer *server, EpollHandle *epollHandle) : th_(nullptr), server_(server), socketFd_(-1), handle_(epollHandle) {}
+        ~Acceptor();
+
+        void start();
+        void stop();
+
+    private:
+        void initSocket();
+        void eventLoop();
+
+    private:
+        std::unique_ptr<std::thread> th_;
+        SimpleServer *server_;
+        int socketFd_;
+        EpollHandle *handle_;
+        int pair_[2];
+    };
+
+    class IOWorker {
+    public:
+        explicit IOWorker(SimpleServer *server, EpollHandle *epollHandle) : handle_(epollHandle), server_(server), th_(nullptr) {}
+        ~IOWorker();
+        void start();
+        void stop();
+
+    protected:
+        void eventLoop();
+        void handleRead(ConnData *eventDataPtr);
+        void handleWrite(ConnData *eventDataPtr);
+        void cleanupEvent(int fd, EventBase *event);
+
+    private:
+        static std::atomic_int id_;
+        EpollHandle *handle_;
+        SimpleServer *server_;
+        std::unique_ptr<std::thread> th_;
+        int pair_[2];
+    };
+
+    class SimpleServer {
+    public:
+        using URLFormat = std::string;
+        using HandlerFunction = std::function<void(HTTPRequest *, HTTPResponse *)>;
+        using HandlersMap = std::unordered_map<URLFormat, std::pair<HTTPMethod, HandlerFunction>>;// todo: this should be vector<std::pair<method, handler>>
+        using RegexHandlerMap = std::unordered_map<std::regex, std::pair<HTTPMethod, HandlerFunction>>;
+        using DefaultHandlersMap = std::map<HTTPMethod, HandlerFunction>;
+
+        struct HandlerTask {
+            ConnData *data;
+            IOWorker *ioWorker;
+            SimpleServer *server;
+        };
+        using TaskPool = libs::NotifyQueueWorker<HandlerTask>;
+
+    public:
+        // SimpleServer() = default;
+        SimpleServer(std::string address, unsigned int port, std::size_t poolSize = 1);
+        ~SimpleServer();
+
+        void start();
+        void stop();
+        bool isRunning() const;
+        void addHandlers(const HandlersMap &handlers);
+        void addHandlers(URLFormat path, HTTPMethod method, HandlerFunction fn);
+        void printConnStat() const;
+
+    private:
+        void workerFn(HandlerTask &&task);
+        std::pair<std::string, int> addrParse(struct sockaddr *sa);
+        std::pair<bool, HandlerFunction> getHandler(HTTPMethod method, const std::string &path);
+        void addActiveConn(ConnData* conn);
+        void removeActiveConn(ConnData* conn);
+        static void onExpectContinue(HTTPRequest *req, HTTPResponse *res);
+        static void onDefaultGet(HTTPRequest *req, HTTPResponse *res);
+
+    private:
+        friend class Acceptor;
+        friend class IOWorker;
+
+    private:
+        std::string _address;
+        unsigned int _port;
+        std::size_t _poolSize;
+        HandlersMap handlers_;
+        DefaultHandlersMap defaultHandlers_;
+        std::atomic_bool _stop;
+        std::vector<EpollHandle> _epollHandles;// for io workers
+        EpollHandle accEpoll_;                 // for acceptor
+        std::unique_ptr<Acceptor> acceptor_;
+        std::vector<IOWorker *> ioWorkers_;
+        mutable std::mutex mtx_;
+        std::vector<ConnData* > activeConn_;
+        std::stack<ConnData*> cacheConn_;
+    };
+
+}// namespace simple_http
