@@ -17,11 +17,13 @@ set(test_SRC
     StrUtils_test.cpp
     FileUtils_test.cpp
     JoinableThread_test.cpp
-    SSLUtils_test.cpp
+    # SSLUtils_test.cpp
+    # BinarySearch.cpp
+    RawString_test.cpp
 )
 
 add_executable(test-libs
-    ${libs_SRC}
+    # ${libs_SRC}
     ${test_SRC}
 )
 
@@ -35,15 +37,22 @@ target_include_directories(test-libs PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_PREFIX_PATH}/include
 )
+
+target_compile_options(test-libs PRIVATE
+    -g
+    -fsanitize=address -fno-omit-frame-pointer
+)
+
 # target_link_directories(test-libs PRIVATE
 #         ${CMAKE_PREFIX_PATH}/lib
 #         ${CMAKE_PREFIX_PATH}/lib64
 # )
 
 target_link_libraries(test-libs PRIVATE
-    pthread
-    ssl crypto
+    # ssl crypto
     gtest gtest_main
+    pthread
+    -fsanitize=address
 )
 
 gtest_discover_tests(test-libs)

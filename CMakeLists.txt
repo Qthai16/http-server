@@ -60,12 +60,6 @@ REQUIRE_BOOST_LIBRARIES(BOOST_COMPONENTS)
 # set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++17 -g -Wall")
 # set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -std=c++17 -w -O3")
 
-# new approach for compile options
-# -Wsign-conversion
-# add_compile_options(-Wall -Wextra)
-add_compile_options("$<$<CONFIG:Debug>:-g>")
-add_compile_options("$<$<CONFIG:Release>:-w;-O3>")
-
 # add_definitions(-DOPTION_ABC)
 
 # todo: chuyen logic start server thanh lib???
@@ -79,12 +73,26 @@ add_executable(http-server
 #     CXX_STANDARD_REQUIRED ON
 # )
 
+target_compile_options(http-server PRIVATE
+    $<$<CONFIG:Debug>:-g -fsanitize=address -fno-omit-frame-pointer>
+    $<$<CONFIG:Release>:-w -O3>
+    # -Wall -Wextra -Wsign-conversion
+)
+
+target_compile_definitions(http-server PRIVATE
+    $<$<CONFIG:Debug>:DEBUG>
+)
+
 target_include_directories(http-server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${OPENSSL_INCLUDE_DIR} # should check if enable by opt
     ${CURL_INCLUDE_DIR} # should check if enable by opt
 )
-target_link_libraries(http-server ${LINK_LIBS} ${Boost_LIBRARIES})
+target_link_libraries(http-server PRIVATE
+    ${LINK_LIBS}
+    ${Boost_LIBRARIES}
+    $<$<CONFIG:Debug>:-fsanitize=address>
+)
 
 
 # add_custom_command(TARGET http-server POST_BUILD
