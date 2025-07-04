@@ -18,31 +18,43 @@
 #include <cstring>
 #include <signal.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <cstring>
 
 namespace libs {
-    static void beDaemon() {
+
+    static void beDaemon(const char *logfile = nullptr) {
         pid_t pid;
         if ((pid = ::fork()) < 0)
             throw std::runtime_error("cannot fork daemon process");
-        else if (pid != 0)
+        else if (pid != 0)// parent process
             ::exit(0);
 
-        ::setsid();
-        ::umask(0);
-
-        // attach stdin, stdout, stderr to /dev/null
-        // instead of just closing them. This avoids
-        // issues with third party/legacy code writing
-        // stuff to stdout/stderr.
-        FILE *fin = ::freopen("/dev/null", "r+", stdin);
+        ::setsid(); // create new session and detach from terminal
+        ::umask(0); // no limit on file permissions
+        FILE *fin = ::freopen("/dev/null", "r", stdin);
         if (!fin)
             throw std::runtime_error("Cannot attach stdin to /dev/null");
-        FILE *fout = ::freopen("/dev/null", "r+", stdout);
-        if (!fout)
-            throw std::runtime_error("Cannot attach stdout to /dev/null");
-        FILE *ferr = ::freopen("/dev/null", "r+", stderr);
-        if (!ferr)
-            throw std::runtime_error("Cannot attach stderr to /dev/null");
+        if (logfile && ::strcmp(logfile, "/dev/null") != 0) {
+            auto fd = ::open(logfile, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+            if (fd < 0) {
+                std::string errmsg = std::string("Failed to open log: ") + std::string{logfile};
+                throw std::runtime_error(errmsg.c_str());
+            }
+            ::dup2(fd, STDOUT_FILENO);
+            ::dup2(fd, STDERR_FILENO);
+            ::close(fd);
+        } else {
+            FILE *fout = ::freopen("/dev/null", "w", stdout);
+            if (!fout) {
+                throw std::runtime_error("Cannot attach stdout");
+            }
+            FILE *ferr = ::freopen("/dev/null", "w", stderr);
+            if (!ferr) {
+                throw std::runtime_error("Cannot attach stderr");
+            }
+        }
     }
 
     static void waitForTerminationRequest() {
