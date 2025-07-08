@@ -15,7 +15,7 @@
 class RawStr {
 public:
     RawStr() : mem_(nullptr), size_(0), cap_(0) {}
-    RawStr(const char* s) : mem_(nullptr), size_(0), cap_(0) {
+    RawStr(const char *s) : mem_(nullptr), size_(0), cap_(0) {
         if (s == nullptr || *s == '\0') return;
         size_ = strlen(s);
         cap_ = size_ + 1;
@@ -26,9 +26,9 @@ public:
     ~RawStr() {
         cleanup();
     }
-    RawStr(const RawStr &o) : mem_(nullptr), size_(0), cap_(0) {
-        if (o.mem_ != nullptr && o.size_ > 0) {// other have data
-            mem_ = (char *) malloc(o.size_ + 1); // +1 for null terminator
+    RawStr(const RawStr &o) noexcept : mem_(nullptr), size_(0), cap_(0) {
+        if (o.mem_ != nullptr && o.size_ > 0) { // other have data
+            mem_ = (char *) malloc(o.size_ + 1);// +1 for null terminator
             memcpy(mem_, o.mem_, o.size_);
             mem_[o.size_] = '\0';
             size_ = o.size_;
@@ -36,11 +36,11 @@ public:
             return;
         }
     }
-    RawStr &operator=(const RawStr &o) {
+    RawStr &operator=(const RawStr &o) noexcept {
         if (this == &o) return *this;
         if (o.mem_ != nullptr && o.size_ > 0) {// other have data
             if (mem_ == nullptr) {
-                mem_ = (char *) malloc(o.size_ + 1); // +1 for null terminator
+                mem_ = (char *) malloc(o.size_ + 1);// +1 for null terminator
                 cap_ = o.size_ + 1;
             } else if (cap_ < o.size_ + 1) {
                 auto newcap = allocMem(o.size_ + 1);
@@ -57,25 +57,24 @@ public:
         return *this;
     }
 
-    RawStr(RawStr&& o) : mem_(nullptr), size_(0), cap_(0) {
+    RawStr(RawStr &&o) noexcept : mem_(nullptr), size_(0), cap_(0) {
         if (o.mem_ && o.size_) {
-            // todo: use std::swap
-            mem_ = o.mem_;
-            size_ = o.size_;
-            cap_ = o.cap_;
+            std::swap(mem_, o.mem_);
+            std::swap(size_, o.size_);
+            std::swap(cap_, o.cap_);
             o.reset();
             return;
         }
         // other empty, do nothing
     }
 
-    RawStr& operator=(RawStr&& o) {
+    RawStr &operator=(RawStr &&o) noexcept {
         if (this == &o) return *this;
         if (o.mem_ && o.size_) {
             cleanup();
-            mem_ = o.mem_;
-            size_ = o.size_;
-            cap_ = o.cap_;
+            std::swap(mem_, o.mem_);
+            std::swap(size_, o.size_);
+            std::swap(cap_, o.cap_);
             o.reset();
             return *this;
         }
@@ -89,19 +88,19 @@ public:
         if (mem_[size_] != '\0') {
             // This is dangerous - we're modifying in a const method
             // Better to always keep strings null-terminated
-            const_cast<RawStr*>(this)->ensureNullTerminated();
+            const_cast<RawStr *>(this)->ensureNullTerminated();
         }
         return mem_;
     }
 
-    void append(const char* s, size_t len) {
+    void append(const char *s, size_t len) {
         if (s == nullptr || len == 0) return;
-        if (size_ + len + 1 > cap_) { // +1 for null terminator
+        if (size_ + len + 1 > cap_) {// +1 for null terminator
             auto newcap = allocMem(size_ + len + 1);
             if (mem_ == nullptr) {
-                mem_ = (char*) malloc(newcap);
+                mem_ = (char *) malloc(newcap);
             } else {
-                mem_ = (char*) realloc(mem_, newcap);
+                mem_ = (char *) realloc(mem_, newcap);
             }
             cap_ = newcap;
         }
@@ -110,21 +109,21 @@ public:
         mem_[size_] = '\0';
     }
 
-    void append(const char* s) {
-        append(s, s ? strlen(s): 0);
+    void append(const char *s) {
+        append(s, s ? strlen(s) : 0);
     }
 
-    RawStr& operator+=(const char* s) {
+    RawStr &operator+=(const char *s) {
         append(s);
         return *this;
     }
 
-    RawStr& operator+=(char c) {
+    RawStr &operator+=(char c) {
         append(&c, 1);
         return *this;
     }
 
-    const char* data() const {
+    const char *data() const {
         return mem_;
     }
 
@@ -172,7 +171,7 @@ private:
     void ensureNullTerminated() {
         if (cap_ <= size_) {
             auto newcap = allocMem(size_ + 1);
-            mem_ = (char*) realloc(mem_, newcap);
+            mem_ = (char *) realloc(mem_, newcap);
             cap_ = newcap;
         }
         mem_[size_] = '\0';
