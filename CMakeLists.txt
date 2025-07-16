@@ -8,67 +8,58 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
 # set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # set(CMAKE_CXX_EXTENSIONS OFF)
 
-# if (NOT DEFINED CMAKE_CXX_STANDARD)
-#   set(CMAKE_CXX_STANDARD 11) # C++11
-#   message(STATUS "Setting C++11 as the default language level.")
-#   message(STATUS "To specify a different C++ language level, set CMAKE_CXX_STANDARD")
-# endif()
+if (NOT DEFINED CMAKE_CXX_STANDARD)
+    set(CMAKE_CXX_STANDARD 17)
+    message(STATUS "Unset CXX standatd, default to C++17.")
+    # message(STATUS "To specify a different C++ language level, set CMAKE_CXX_STANDARD")
+endif()
 
-# uncomment to use clang build with sanitize address option
+# uncomment to hard-coded clang build
 # set(CMAKE_C_COMPILER /usr/bin/clang)
 # set(CMAKE_CXX_COMPILER /usr/bin/clang++)
-# # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
 
 find_package(Threads REQUIRED)
 
-set(SRC_FILES
-    src/HttpMessage.cpp
-    src/SimpleServer.cpp
-)
-
-set(LINK_LIBS
-    pthread
-)
-
-# openssl
-option(USE_OPENSSL "set ON to build with OpenSSL" ON)
-option(USE_LIBCURL "set ON to build with libcurl" OFF)
-option(BUILD_TEST "set ON to build test" ON) # todo: compile bug
+option(USE_OPENSSL "Build with OpenSSL" OFF)
+option(USE_LIBCURL "Build with libcurl" OFF)
+option(USE_BOOST "Build with boost" OFF)
+option(BUILD_TEST "Build test" OFF)
 
 if (USE_OPENSSL)
     # libcurl4-openssl-dev
     find_package(OpenSSL REQUIRED)
-    # include_directories(SYSTEM "${OPENSSL_INCLUDE_DIR}")
-    # set(LINK_LIBS ${LINK_LIBS} ${OPENSSL_LIBRARIES})
-    # set(SRC_FILES ${SRC_FILES} libs/SSLUtils.cpp) # helper utils
+    set(LIB_INCLUDE_DIRS ${LIB_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIR})
+    set(LINK_LIBS ${LINK_LIBS} ${OPENSSL_LIBRARIES})
+    set(SRC_FILES ${SRC_FILES} libs/SSLUtils.cpp) # helper utils
 endif()
 
 if (USE_LIBCURL)
     # libssl-dev
     find_package(CURL REQUIRED)
+    set(LIB_INCLUDE_DIRS ${LIB_INCLUDE_DIRS} ${CURL_INCLUDE_DIR})
     set(LINK_LIBS ${LINK_LIBS} ${CURL_LIBRARIES})
 endif()
 
-include(BoostMacros)
-REQUIRE_BOOST_HEADERS()
-set(BOOST_COMPONENTS filesystem)
-REQUIRE_BOOST_LIBRARIES(BOOST_COMPONENTS)
-
-
-# old approach
-# set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++17 -g -Wall")
-# set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -std=c++17 -w -O3")
-
-# new approach for compile options
-# -Wsign-conversion
-# add_compile_options(-Wall -Wextra)
-add_compile_options("$<$<CONFIG:Debug>:-g>")
-add_compile_options("$<$<CONFIG:Release>:-w;-O3>")
+if (USE_BOOST)
+    include(BoostMacros)
+    REQUIRE_BOOST_HEADERS()
+    # set(BOOST_COMPONENTS filesystem)
+    # REQUIRE_BOOST_LIBRARIES(BOOST_COMPONENTS)
+endif()
 
 # add_definitions(-DOPTION_ABC)
 
-# todo: chuyen logic start server thanh lib???
+set(SRC_FILES
+    ${SRC_FILES}
+    src/HttpMessage.cpp
+    src/SimpleServer.cpp
+)
+
+set(LINK_LIBS
+    ${LINK_LIBS}
+    pthread
+)
+
 add_executable(http-server
     test.cpp
     ${SRC_FILES}
@@ -78,14 +69,25 @@ add_executable(http-server
 #     CXX_STANDARD 17
 #     CXX_STANDARD_REQUIRED ON
 # )
+# notes: -fsanitize=thread cannot use with -fsanitize=address
+target_compile_options(http-server PRIVATE
+    $<$<CONFIG:Debug>:-g -fsanitize=address -fno-omit-frame-pointer>
+    $<$<CONFIG:Release>:-w -O3>
+    # -Wall -Wextra -Wsign-conversion
+)
+
+target_compile_definitions(http-server PRIVATE
+    $<$<CONFIG:Debug>:DEBUG>
+)
 
 target_include_directories(http-server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${OPENSSL_INCLUDE_DIR} # should check if enable by opt
-    ${CURL_INCLUDE_DIR} # should check if enable by opt
+    ${LIB_INCLUDE_DIRS}
 )
-target_link_libraries(http-server ${LINK_LIBS} ${Boost_LIBRARIES})
-
+target_link_libraries(http-server PRIVATE
+    ${LINK_LIBS}
+    $<$<CONFIG:Debug>:-fsanitize=address>
+)
 
 # add_custom_command(TARGET http-server POST_BUILD
 #     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -93,37 +95,8 @@ target_link_libraries(http-server ${LINK_LIBS} ${Boost_LIBRARIES})
 #         ${CMAKE_BINARY_DIR}/static
 # )
 
-# set(TEST_SRC
-#     socket_pairs.cpp
-#     libs/SSLUtils.cpp
-# )
-
-# add_executable(socket_test
-#     ${TEST_SRC}
-# )
-# target_include_directories(socket_test PRIVATE
-#     ${CMAKE_CURRENT_SOURCE_DIR}
-# )
-# target_link_libraries(socket_test pthread ssl crypto)
-
 if (BUILD_TEST)
     message(STATUS "Building tests")
     enable_testing()
     add_subdirectory(test)
 endif()
-
-# if (OPENSSL_FOUND)
-#     # target_include_directories(http-server ${OPENSSL_INCLUDE_DIR})
-#     # target_compile_definitions(http-server PUBLIC HAVE_OPENSSL)
-#     # target_link_libraries(http-server ${OPENSSL_LIBRARIES})
-#     set(LINK_LIBS ${LINK_LIBS} ${OPENSSL_LIBRARIES})
-#     set(SRC_FILES ${SRC_FILES} libs/SSLUtils.cpp) # helper utils
-# endif()
-
-# if (CURL_FOUND)
-#     # set(CURL_LIBRARY "-lcurl")
-#     # target_include_directories(${CURL_INCLUDE_DIR})
-#     # target_compile_definitions(http-server PUBLIC HAVE_LIBCURL)
-#     set(LINK_LIBS ${LINK_LIBS} ${CURL_LIBRARIES})
-#     # target_link_libraries(http-server ${CURL_LIBRARIES})
-# endif()

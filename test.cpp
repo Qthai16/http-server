@@ -22,8 +22,8 @@
 #include <filesystem>
 namespace fs = std::filesystem;
 #else
-#include <boost/filesystem.hpp>
-namespace fs = boost::filesystem;
+#include <experimental/filesystem>
+namespace fs = std::experimental::filesystem;
 #endif
 
 #include "src/HttpMessage.h"
