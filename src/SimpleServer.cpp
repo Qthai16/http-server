@@ -69,8 +69,10 @@ namespace simple_http {
 
         if (::listen(socketFd_, QUEUEBACKLOG) < 0)
             throw std::runtime_error("Failed to listen socket");
-        handle_->add_or_modify_fd(socketFd_, EPOLLIN, EPOLL_CTL_ADD, new EventBase(socketFd_, EventType::ACCEPTOR));
-        handle_->add_or_modify_fd(pair_[0], EPOLLIN, EPOLL_CTL_ADD, new PairEventData(pair_[0]));
+        sockEventData_.reset(new EventBase(socketFd_, EventType::ACCEPTOR));
+        pairEventData_.reset(new PairEventData(pair_[0]));
+        handle_->add_or_modify_fd(socketFd_, EPOLLIN, EPOLL_CTL_ADD, sockEventData_.get());
+        handle_->add_or_modify_fd(pair_[0], EPOLLIN, EPOLL_CTL_ADD, pairEventData_.get());
     }
 
     void Acceptor::eventLoop() {
@@ -90,8 +92,6 @@ namespace simple_http {
                             event->_bytesInBuffer = ::recv(event->_fd, event->_eventBuffer, event->bufferCap_, 0);
                             assert(event->_bytesInBuffer == 1);
                             printf("acceptor interrupted\n");
-                            delete event;
-                            event = nullptr;
                             return;
                         }
                     } break;
@@ -373,7 +373,7 @@ namespace simple_http {
         ioWorkers_.resize(_poolSize, nullptr);
         for (auto i = 0; i < _poolSize; i++) {
             _epollHandles[i].init();
-            ioWorkers_[i] = new IOWorker(this, &_epollHandles[i]);
+            ioWorkers_[i] = new IOWorker(this, &_epollHandles[i]); // todo: this can lead to invalidate pointer when vector resize
         }
         accEpoll_.init();
         acceptor_.reset(new Acceptor(this, &accEpoll_));
@@ -388,6 +388,7 @@ namespace simple_http {
     void SimpleServer::stop() {
         if (!_stop.exchange(true)) {
             acceptor_->stop();
+            acceptor_.reset(); // wait acceptor join
             for (auto &io: ioWorkers_) {
                 io->stop();
                 delete io;

@@ -63,6 +63,7 @@ namespace simple_http {
     };
     struct PairEventData : public EventBase {
         PairEventData(int fd) : EventBase(fd, EventType::PAIR_IO) {}
+        ~PairEventData() override = default; 
     };
 
     struct ConnData : public EventBase {
@@ -160,7 +161,8 @@ namespace simple_http {
     class SimpleServer;
     class Acceptor {
     public:
-        Acceptor(SimpleServer *server, EpollHandle *epollHandle) : th_(nullptr), server_(server), socketFd_(-1), handle_(epollHandle) {}
+        Acceptor(SimpleServer *server, EpollHandle *epollHandle) : th_(nullptr), server_(server),
+            sockEventData_(), pairEventData_(), socketFd_(-1), handle_(epollHandle) {}
         ~Acceptor();
 
         void start();
@@ -173,6 +175,8 @@ namespace simple_http {
     private:
         std::unique_ptr<std::thread> th_;
         SimpleServer *server_;
+        std::unique_ptr<EventBase> sockEventData_;
+        std::unique_ptr<EventBase> pairEventData_;
         int socketFd_;
         EpollHandle *handle_;
         int pair_[2];
