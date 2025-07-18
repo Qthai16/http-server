@@ -4,6 +4,7 @@
 #include <sys/poll.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
+#include <atomic>
 
 using namespace std::chrono_literals;
 
@@ -77,7 +78,6 @@ namespace simple_http {
 
     void Acceptor::eventLoop() {
         auto ind = 0;// round robin
-        auto &epollHandle = server_->_epollHandles;
         auto workerSize = server_->ioWorkers_.size();
         while (server_->isRunning()) {
             auto nfds = ::epoll_wait(handle_->_epollFd, handle_->events, MAX_EPOLL_EVENTS, -1);// wait forever
@@ -103,24 +103,19 @@ namespace simple_http {
                         if (clientfd < 0) {
                             int errno_copy = errno;
                             if (errno_copy == EAGAIN || errno_copy == EWOULDBLOCK) {
-                                // break;// No more connections to accept now
-                                continue;
+                                break;// no more connections
                             } else {
                                 printf("Acceptor::start() accept() errno: %s\n", strerror(errno_copy));
                                 perror("accept failed");
-                                // break;
-                                continue;
+                                break;
                             }
                         }
 
                         auto addrPair = server_->addrParse((struct sockaddr *) &connAddr);
                         // printf("New connection: %s:%d\n", addrPair.first.c_str(), addrPair.second);
-
-                        // add fd to epoll interest list
                         // todo: change this to addNewConnCallback, should not directly modify server epoll handle
-                        auto eventData = new ConnData(clientfd);
-                        eventData->addr = std::move(addrPair);
-                        epollHandle[ind++].add_or_modify_fd(clientfd, EPOLLIN, EPOLL_CTL_ADD, eventData);// leveled triggered
+                        server_->incActiveConn();
+                        server_->addConnection(ind++, clientfd, std::move(addrPair));
                         if (ind >= workerSize) ind = 0;
                     } break;
                     default:
@@ -174,6 +169,8 @@ namespace simple_http {
         int rv = ::socketpair(AF_UNIX, SOCK_STREAM, 0, pair_);
         if (rv != 0)
             throw std::runtime_error("socket pair failed");
+        handle_.reset(new EpollHandle());
+        handle_->init();
         auto stopEvent = new PairEventData(pair_[0]);
         handle_->add_or_modify_fd(pair_[0], EPOLLIN, EPOLL_CTL_ADD, stopEvent);
         th_ = std::make_unique<std::thread>([this, id]() {
@@ -190,6 +187,11 @@ namespace simple_http {
         assert(rv == 1);
     }
 
+    void IOWorker::addConn(int fd, std::pair<std::string, int> &&addr) {
+        auto eventData = server_->getOrCreateConn(fd, std::move(addr));
+        handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, eventData);// leveled triggered
+    }
+
     void IOWorker::eventLoop() {
         while (server_->isRunning()) {
             auto nfds = ::epoll_wait(handle_->_epollFd, handle_->events, MAX_EPOLL_EVENTS, -1);// wait forever
@@ -197,15 +199,13 @@ namespace simple_http {
                 continue;
             }
             for (auto i = 0; i < nfds; i++) {
-                // sometimes EPOLLHUP and EPOLLERR bit is set make fd a not valid value
-                // auto fd = handle_->events[i].data.fd;
                 auto event = reinterpret_cast<EventBase *>(handle_->events[i].data.ptr);
                 auto fd = event->_fd;
                 auto eventTypes = handle_->events[i].events;
                 switch (event->_type) {
                     case EventType::PAIR_IO: {
                         if (eventTypes & (EPOLLHUP | EPOLLERR)) {
-                            cleanupEvent(fd, event);
+                            cleanupEvent(event);
                         } else if (eventTypes & EPOLLIN) {
                             event->_bytesInBuffer = ::recv(fd, event->_eventBuffer, event->bufferCap_, 0);
                             assert(event->_bytesInBuffer == 1);
@@ -215,18 +215,19 @@ namespace simple_http {
                             return;
                         } else if (eventTypes & EPOLLOUT) {
                             printf("unhandled pair epoll out\n");
+                            assert(0);
                         } else {
                             printf("unknown event\n");
                             assert(0);
                         }
                     } break;
                     case EventType::CONN_IO: {
-                        auto reqEventData = (ConnData *)event;
+                        auto reqEventData = (ConnData *) event;
                         if (eventTypes & (EPOLLHUP | EPOLLERR)) {// errors or event is not handled
                             // printf("connection close: %d\n", eventTypes);
-                            cleanupEvent(fd, reqEventData);
+                            cleanupEvent(reqEventData);
                         } else if (eventTypes & EPOLLIN) {
-                            server_->addActiveConn(reqEventData);
+                            // todo: add total request metrics
                             handleRead(reqEventData);
                         } else if (eventTypes & EPOLLOUT) {
                             handleWrite(reqEventData);
@@ -245,55 +246,61 @@ namespace simple_http {
     }
 
     void IOWorker::handleRead(ConnData *eventDataPtr) {
-        assert(eventDataPtr);
-        auto fd = eventDataPtr->_fd;
-        auto httpReqPtr = eventDataPtr->req;
-        auto byte_count = ::recv(fd, eventDataPtr->_eventBuffer, eventDataPtr->bufferCap_, 0);
-        if (byte_count > 0) {
-            eventDataPtr->_bytesInBuffer = byte_count;
-            httpReqPtr->parse_request(eventDataPtr->_eventBuffer, eventDataPtr->_bytesInBuffer);
-            if (httpReqPtr->have_expect_continue()) {
-                printf("expect continue\n");
-                httpReqPtr->_expectContinue = false;
-                auto tmpEvent = std::make_unique<ConnData>(fd);
-                server_->onExpectContinue(tmpEvent->req, tmpEvent->res);
-                tmpEvent->_bytesInBuffer = tmpEvent->res->serialize_reponse(tmpEvent->_eventBuffer, tmpEvent->bufferCap_);
-                // send here in order to not mess up with handleWrite state
-                ::send(fd, tmpEvent->_eventBuffer, tmpEvent->_bytesInBuffer, MSG_NOSIGNAL);
-            }
-            if (!httpReqPtr->request_completed()) {// still have bytes to read
-                handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
-            } else {// read done
-                auto httpResPtr = eventDataPtr->res;
-                // eventDataPtr->resetBuffer();
-                auto pair = server_->getHandler(httpReqPtr->_method, httpReqPtr->_path);
-                if (pair.first) {
-                    pair.second(httpReqPtr, httpResPtr);// call registered handler
-                    // serialize first part of response, the rest of body will be handle in HandleWriteEvent
-                    // eventDataPtr->_bytesInBuffer = httpResPtr->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
-                    handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
-                } else {
-                    if (server_->defaultHandlers_.count(httpReqPtr->_method)) {// not registered path
-                        server_->defaultHandlers_.at(httpReqPtr->_method)(httpReqPtr, httpResPtr);
+        try {
+            assert(eventDataPtr);
+            auto fd = eventDataPtr->_fd;
+            auto httpReqPtr = eventDataPtr->req;
+            auto byte_count = ::recv(fd, eventDataPtr->_eventBuffer, eventDataPtr->bufferCap_, 0);
+            if (byte_count > 0) {
+                eventDataPtr->_bytesInBuffer = byte_count;
+                httpReqPtr->parse_request(eventDataPtr->_eventBuffer, eventDataPtr->_bytesInBuffer);
+                if (httpReqPtr->have_expect_continue()) {
+                    printf("expect continue\n");
+                    httpReqPtr->_expectContinue = false;
+                    auto tmpEvent = std::make_unique<ConnData>(fd);
+                    server_->onExpectContinue(tmpEvent->req, tmpEvent->res);
+                    tmpEvent->_bytesInBuffer = tmpEvent->res->serialize_reponse(tmpEvent->_eventBuffer, tmpEvent->bufferCap_);
+                    // send here in order to not mess up with handleWrite state
+                    ::send(fd, tmpEvent->_eventBuffer, tmpEvent->_bytesInBuffer, MSG_NOSIGNAL);
+                }
+                if (!httpReqPtr->request_completed()) {// still have bytes to read
+                    handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
+                } else {// read done
+                    auto httpResPtr = eventDataPtr->res;
+                    // eventDataPtr->resetBuffer();
+                    auto pair = server_->getHandler(httpReqPtr->_method, httpReqPtr->_path);
+                    if (pair.first) {
+                        pair.second(httpReqPtr, httpResPtr);// call registered handler
+                        // serialize first part of response, the rest of body will be handle in HandleWriteEvent
                         // eventDataPtr->_bytesInBuffer = httpResPtr->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
                         handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
                     } else {
-                        // method not supported or default handler for method not found
+                        if (server_->defaultHandlers_.count(httpReqPtr->_method)) {// not registered path
+                            server_->defaultHandlers_.at(httpReqPtr->_method)(httpReqPtr, httpResPtr);
+                            // eventDataPtr->_bytesInBuffer = httpResPtr->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
+                            handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
+                        } else {
+                            // method not supported or default handler for method not found
+                        }
                     }
                 }
+            } else if ((byte_count < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                // no data available, try again
+                printf("handleRead: retry\n");
+                eventDataPtr->resetData();
+                handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
+            } else {
+                // byte_count = 0 (connection close by client) and other errors
+                cleanupEvent(eventDataPtr);
             }
-        } else if ((byte_count < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            // no data available, try again
-            // handle_->delete_fd(fd);
-            printf("handleRead: retry\n");
-            // auto reqEventData = new ConnData(fd);
-            eventDataPtr->resetData();
-            handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
-            // delete eventDataPtr;
-            // eventDataPtr = nullptr;
-        } else {
-            // byte_count = 0 (connection close by client) and other errors
-            cleanupEvent(fd, eventDataPtr);
+        } catch (const std::exception &e) {
+            fprintf(stderr, "IOWorker::handleRead exception: %s\n", e.what());
+            cleanupEvent(eventDataPtr);
+            return;
+        } catch (...) {
+            fprintf(stderr, "IOWorker::handleRead unknown exception\n");
+            cleanupEvent(eventDataPtr);
+            return;
         }
     }
 
@@ -301,15 +308,9 @@ namespace simple_http {
         assert(eventDataPtr);
         auto fd = eventDataPtr->_fd;
         if (eventDataPtr->res->writeDone()) {
-            // if keep alive, reuse this fd for read event, else close it
-            // auto reqEventData = new ConnData(fd);
             eventDataPtr->resetData();
             handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
-            server_->removeActiveConn(eventDataPtr);
-            // delete eventDataPtr;
-            // eventDataPtr = nullptr;
-            // handle_->delete_fd(fd);
-            // close(fd);
+            // todo: add success request metrics
             return;
         }
         eventDataPtr->_bytesInBuffer = eventDataPtr->res->serialize_reponse(eventDataPtr->_eventBuffer, eventDataPtr->bufferCap_);
@@ -320,14 +321,8 @@ namespace simple_http {
                 // eventDataPtr->_bytesInBuffer = eventDataPtr->res->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
                 handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
             } else {
-                // auto reqEventData = new ConnData(fd);
                 eventDataPtr->resetData();
                 handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
-                server_->removeActiveConn(eventDataPtr);
-                // delete eventDataPtr;
-                // eventDataPtr = nullptr;
-                // handle_->delete_fd(fd);
-                // close(fd);
             }
         } else {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {// retry
@@ -335,19 +330,21 @@ namespace simple_http {
                 printf("handleWrite: retry\n");
                 handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_ADD, eventDataPtr);
             } else {
-                cleanupEvent(fd, eventDataPtr);
+                cleanupEvent(eventDataPtr);
             }
         }
     }
 
-    void IOWorker::cleanupEvent(int fd, EventBase *event) {
+    void IOWorker::cleanupEvent(EventBase *event) {
         auto connData = dynamic_cast<ConnData *>(event);
+        handle_->delete_fd(event->_fd);
+        ::close(event->_fd);
         if (connData) {
             // printf("cleanup conn: %s:%d\n", connData->addr.first.c_str(), connData->addr.second);
-            server_->removeActiveConn(connData);
+            server_->decActiveConn();
+            server_->pushCacheConn(connData);
+            return;
         }
-        handle_->delete_fd(fd);
-        ::close(fd);
         delete event;
         event = nullptr;
     }
@@ -362,18 +359,15 @@ namespace simple_http {
                                                                                                handlers_(),
                                                                                                defaultHandlers_(),
                                                                                                _stop(false),
-                                                                                               _epollHandles(),
                                                                                                acceptor_(nullptr),
                                                                                                ioWorkers_() {
         defaultHandlers_[HTTPMethod::GET] = &SimpleServer::onDefaultGet;
     }
 
     void SimpleServer::start() {
-        _epollHandles.resize(_poolSize);
         ioWorkers_.resize(_poolSize, nullptr);
         for (auto i = 0; i < _poolSize; i++) {
-            _epollHandles[i].init();
-            ioWorkers_[i] = new IOWorker(this, &_epollHandles[i]); // todo: this can lead to invalidate pointer when vector resize
+            ioWorkers_[i] = new IOWorker(this);
         }
         accEpoll_.init();
         acceptor_.reset(new Acceptor(this, &accEpoll_));
@@ -388,11 +382,17 @@ namespace simple_http {
     void SimpleServer::stop() {
         if (!_stop.exchange(true)) {
             acceptor_->stop();
-            acceptor_.reset(); // wait acceptor join
+            acceptor_.reset();// wait acceptor join
             for (auto &io: ioWorkers_) {
                 io->stop();
                 delete io;
                 io = nullptr;
+            }
+            printf("cached connections: %d\n", static_cast<int>(cacheConn_.size()));
+            while (!cacheConn_.empty()) {
+                auto conn = cacheConn_.top();
+                cacheConn_.pop();
+                delete conn;
             }
         }
     }
@@ -410,9 +410,8 @@ namespace simple_http {
         handlers_[path] = {method, fn};
     }
 
-    void SimpleServer::printConnStat() const {
-        std::lock_guard<std::mutex> lock(mtx_);
-        printf("Active conn size: %zu\n", activeConn_.size());
+    int SimpleServer::getActiveConnStat() const {
+        return activeConnCnt.load(std::memory_order_relaxed);
     }
 
     std::pair<std::string, int> SimpleServer::addrParse(struct sockaddr *sa) {
@@ -453,15 +452,59 @@ namespace simple_http {
         return ret;
     }
 
-    void SimpleServer::addActiveConn(ConnData *conn) {
-        std::lock_guard<std::mutex> lock(mtx_);
-        activeConn_.push_back(conn);
+    void SimpleServer::addConnection(int i, int fd, AddrPair &&addr) {
+        if (i < 0 || i >= ioWorkers_.size()) return;
+        ioWorkers_[i]->addConn(fd, std::move(addr));
     }
 
-    void SimpleServer::removeActiveConn(ConnData *conn) {
-        std::lock_guard<std::mutex> lock(mtx_);
-        activeConn_.erase(std::remove(activeConn_.begin(), activeConn_.end(), conn),
-                          activeConn_.end());
+    ConnData *SimpleServer::getOrCreateConn(int fd, AddrPair &&addr) {
+        std::unique_lock<std::mutex> lock(mtx_);
+        if (!cacheConn_.empty()) {
+            auto conn = cacheConn_.top();
+            assert(conn);
+            cacheConn_.pop();
+            lock.unlock();
+            conn->_fd = fd;
+            conn->addr = std::move(addr);
+            return conn;
+        }
+        auto status = cv_.wait_for(lock, 1ms, [this] {
+            return !cacheConn_.empty();
+        });
+        if (status) {
+            auto conn = cacheConn_.top();
+            assert(conn);
+            cacheConn_.pop();
+            lock.unlock();
+            conn->_fd = fd;
+            conn->addr = std::move(addr);
+            return conn;
+        }
+        lock.unlock();
+        return new ConnData(fd, std::move(addr));
+    }
+
+    bool SimpleServer::pushCacheConn(ConnData *conn) {
+        if (!conn) return false;
+        std::unique_lock<std::mutex> lock(mtx_);
+        if (cacheConn_.size() >= MAX_CACHE_CONN) {
+            lock.unlock();
+            delete conn;
+            return false;
+        }
+        conn->resetData();
+        cacheConn_.push(conn);
+        lock.unlock();
+        cv_.notify_one();
+        return true;
+    }
+
+    void SimpleServer::incActiveConn() {
+        activeConnCnt.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void SimpleServer::decActiveConn() {
+        activeConnCnt.fetch_sub(1, std::memory_order_relaxed);
     }
 
     // todo: dung socket pair de notify write response done --> trigger memcpy tu HTTPResponse vao buffer

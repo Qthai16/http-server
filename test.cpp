@@ -37,7 +37,7 @@ namespace fs = std::experimental::filesystem;
 using namespace std::placeholders;
 using namespace simple_http;
 
-#define THREADPOOL_SIZE 4
+// #define THREADPOOL_SIZE 4
 
 #define Q(x)                      #x
 #define ASSERT_EQ(first, second)  assert(first == second)
@@ -148,17 +148,19 @@ int main(int argc, char *argv[]) {
         std::cerr << "Usage: [executable] <address> <port> \n";
         return -1;
     }
+#ifdef DEBUG
+    printf("----------------- DEBUG BUILD -----------------\n");
+#endif
     std::string address(argv[1]);
     auto port = stoi(std::string{argv[2]});
 
-    SimpleServer server(address, port, THREADPOOL_SIZE);
+    SimpleServer server(address, port, 4);
     server.addHandlers({
             {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
             // {"/[a-zA-z0-9_-].+", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
             {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2)}},
             {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2)}},
-            {"/file", {HTTPMethod::PUT, &HandlePostForm}},
-            {"/abc", {HTTPMethod::GET, std::bind(&SendStaticFile, "react-build/OPSWAT.ico", _1, _2)}}
+            {"/file", {HTTPMethod::POST, &HandlePostForm}},
     });
     auto staticResMap = ServeStaticResources("static");
     server.addHandlers(staticResMap);
@@ -167,13 +169,12 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, signalHandler);
     signal(SIGQUIT, signalHandler);
     std::atomic_bool stopPrint{false};
-    std::thread statPrinter([&stopPrint, &server](){
+    std::thread statPrinter([&stopPrint, &server]() {
         while (!stopPrint.load(std::memory_order_acquire)) {
-            server.printConnStat();
+            printf("Active conn size: %d\n", server.getActiveConnStat());
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     });
-    // server.Listen();
     libs::waitForTerminationRequest();
     stopPrint.store(true);
     server.stop();

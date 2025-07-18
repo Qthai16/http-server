@@ -5,5 +5,5 @@ wrk.method = "POST"
 -- wrk.body   = "foo=bar&baz=quux"
 wrk.headers["Content-Type"] = "application/octet-stream"
 -- wrk.headers["Content-Disposition"] = "attachment; filename=\"th.jpeg\""
-file = io.open("test-data/hochiminh_city.jpg", "rb")
+file = io.open("README.md", "rb")
 wrk.body   = file:read("*a")

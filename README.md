@@ -10,7 +10,7 @@
 #### Build
 ```sh
     cd <project_src> && mkdir build && cd build
-    cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DUSE_OPENSSL=On -DBUILD_TEST=On ..
+    cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DUSE_OPENSSL=OFF -DUSE_LIBCURL=OFF -DUSE_BOOST=OFF -DBUILD_TEST=OFF ..
     ninja
 ```
 #### Run
@@ -27,5 +27,6 @@
 
 #### Benchmark test
 ```sh
-   ./benchmark.sh 2>&1 | tee benchmark-result.txt
+    ulimit -n 10000 && ./http-server 0.0.0.0 11225
+    ulimit -n 10000 && ./benchmark.sh 2>&1 | tee benchmark-result.txt
 ```

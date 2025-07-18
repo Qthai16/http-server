@@ -2,6 +2,7 @@
 
 #include "libs/StrUtils.h"
 #include "libs/FileUtils.h"
+#include "libs/Defines.h"
 
 #include <sys/types.h>
 #include <unistd.h>
@@ -120,39 +121,62 @@ namespace simple_http {
         return os;
     }
 
-    HTTPVersion str_to_http_version(const std::string &str) {
-        static std::map<std::string, HTTPVersion> convertMap = {
-                {"HTTP/1.0", HTTPVersion::HTTP_1_0},
-                {"HTTP/1.1", HTTPVersion::HTTP_1_1},
-                {"HTTP/2.0", HTTPVersion::HTTP_2_0}};
-        std::string copyStr;
-        std::transform(str.cbegin(), str.cend(), std::back_inserter(copyStr), [](char c) {
-            return std::toupper(c);
-        });
-        if (convertMap.count(copyStr))
-            return convertMap.at(copyStr);
-        throw std::logic_error("HTTP version not support");
+    std::pair<bool, HTTPVersion> str_to_http_version(const std::string &str) {
+        // std::string copyStr;
+        // std::transform(str.cbegin(), str.cend(), std::back_inserter(copyStr), [](char c) {
+        //     return std::toupper(c);
+        // });
+        if (strncmp(str.c_str(), "HTTP/", 5) != 0) {
+            return {false, HTTPVersion::HTTP_1_1};
+        }
+        if (strncmp(str.c_str() + 5, "1.0", 3) == 0) {
+            return {true, HTTPVersion::HTTP_1_0};
+        } else if (strncmp(str.c_str() + 5, "1.1", 3) == 0) {
+            return {true, HTTPVersion::HTTP_1_1};
+        } else if (strncmp(str.c_str() + 5, "2.0", 3) == 0) {
+            return {true, HTTPVersion::HTTP_2_0};
+        }
+        return {false, HTTPVersion::HTTP_1_1};
     }
 
-    HTTPMethod str_to_method(const std::string &str) {
-        static std::map<std::string, HTTPMethod> convertMap = {
-                {"GET", HTTPMethod::GET},
-                {"HEAD", HTTPMethod::HEAD},
-                {"POST", HTTPMethod::POST},
-                {"PUT", HTTPMethod::PUT},
-                {"DELETE", HTTPMethod::DELETE},
-                {"CONNECT", HTTPMethod::CONNECT},
-                {"OPTIONS", HTTPMethod::OPTIONS},
-                {"TRACE", HTTPMethod::TRACE},
-                {"PATCH", HTTPMethod::PATCH},
-        };
-        std::string copyStr;
-        std::transform(str.cbegin(), str.cend(), std::back_inserter(copyStr), [](char c) {
-            return std::toupper(c);
-        });
-        if (convertMap.count(copyStr))
-            return convertMap.at(copyStr);
-        throw std::logic_error("method not support");
+    std::pair<bool, HTTPMethod> str_to_method(const std::string &str) {
+        // static std::map<std::string, HTTPMethod> convertMap = {
+        //         {"GET", HTTPMethod::GET},
+        //         {"HEAD", HTTPMethod::HEAD},
+        //         {"POST", HTTPMethod::POST},
+        //         {"PUT", HTTPMethod::PUT},
+        //         {"DELETE", HTTPMethod::DELETE},
+        //         {"CONNECT", HTTPMethod::CONNECT},
+        //         {"OPTIONS", HTTPMethod::OPTIONS},
+        //         {"TRACE", HTTPMethod::TRACE},
+        //         {"PATCH", HTTPMethod::PATCH},
+        // };
+        // std::string copyStr;
+        // std::transform(str.cbegin(), str.cend(), std::back_inserter(copyStr), [](char c) {
+        //     return std::toupper(c);
+        // });
+        // if (convertMap.count(copyStr))
+        //     return convertMap.at(copyStr);
+        if (strncmp(str.c_str(), "GET", 3) == 0) {
+            return {true, HTTPMethod::GET};
+        } else if (strncmp(str.c_str(), "HEAD", 4) == 0) {
+            return {true, HTTPMethod::HEAD};
+        } else if (strncmp(str.c_str(), "POST", 4) == 0) {
+            return {true, HTTPMethod::POST};
+        } else if (strncmp(str.c_str(), "PUT", 3) == 0) {
+            return {true, HTTPMethod::PUT};
+        } else if (strncmp(str.c_str(), "DELETE", 6) == 0) {
+            return {true, HTTPMethod::DELETE};
+        } else if (strncmp(str.c_str(), "CONNECT", 7) == 0) {
+            return {true, HTTPMethod::CONNECT};
+        } else if (strncmp(str.c_str(), "OPTIONS", 7) == 0) {
+            return {true, HTTPMethod::OPTIONS};
+        } else if (strncmp(str.c_str(), "TRACE", 5) == 0) {
+            return {true, HTTPMethod::TRACE};
+        } else if (strncmp(str.c_str(), "PATCH", 5) == 0) {
+            return {true, HTTPMethod::PATCH};
+        }
+        return {false, HTTPMethod::GET};
     }
 
     std::string headers_get_field(const HeadersMap &headers, std::string key) {
@@ -269,10 +293,16 @@ namespace simple_http {
             auto tokens = libs::split_str(line, " ");
             if (tokens.size() != 3)
                 throw std::runtime_error("invalid http message");
-            _method = str_to_method(tokens[0]);
+            auto methodRet = str_to_method(tokens[0]);
+            if (!methodRet.first)
+                throw std::runtime_error("invalid http method: " + tokens[0]);
+            _method = methodRet.second;
             _path = tokens[1];
             parse_query_params(_path);
-            _version = str_to_http_version(libs::trim(tokens[2]));
+            auto versionRet = str_to_http_version(libs::trim(tokens[2]));
+            if (!versionRet.first)
+                throw std::runtime_error("invalid http version: " + tokens[2]);
+            _version = versionRet.second;
         }
         totalCnt += cnt;
         buffer += cnt;

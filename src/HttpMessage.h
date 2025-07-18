@@ -61,8 +61,8 @@ namespace simple_http {
     std::string method_str(const HTTPMethod &method);
     std::string version_str(const HTTPVersion &version);
     std::string status_code_str(const HTTPStatusCode &code);
-    HTTPVersion str_to_http_version(const std::string &str);
-    HTTPMethod str_to_method(const std::string &str);
+    std::pair<bool, HTTPVersion> str_to_http_version(const std::string &str);
+    std::pair<bool, HTTPMethod> str_to_method(const std::string &str);
     std::string headers_get_field(const HeadersMap &headers, std::string key);
 
     class MemBuf {

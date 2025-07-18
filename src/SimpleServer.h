@@ -26,8 +26,9 @@
 #include "libs/WorkerPool.h"
 
 #define BUFFER_SIZE      8192
-#define QUEUEBACKLOG     100
-#define MAX_EPOLL_EVENTS 100
+#define QUEUEBACKLOG     1024
+#define MAX_EPOLL_EVENTS 512
+#define MAX_CACHE_CONN   4096
 
 namespace simple_http {
 
@@ -38,6 +39,7 @@ namespace simple_http {
         PAIR_IO,
         ACCEPTOR,
     };
+    using AddrPair = std::pair<std::string, int>;
     struct EventBase {
         int _fd;
         EventType _type;
@@ -63,22 +65,17 @@ namespace simple_http {
     };
     struct PairEventData : public EventBase {
         PairEventData(int fd) : EventBase(fd, EventType::PAIR_IO) {}
-        ~PairEventData() override = default; 
+        ~PairEventData() override = default;
     };
 
     struct ConnData : public EventBase {
         HTTPRequest *req;
         HTTPResponse *res;
-        std::pair<std::string, int> addr;
+        AddrPair addr;
 
-        ConnData() : EventBase(-1, EventType::CONN_IO), req(nullptr), res(nullptr) {}
-        ConnData(int fd) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse()) {}
-
-        // todo: add method init(int clientfd) {
-        // set fd
-        // reset http req
-        // reset http res
-        // }
+        ConnData() : EventBase(-1, EventType::CONN_IO), req(nullptr), res(nullptr), addr() {}
+        ConnData(int fd) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse()), addr() {}
+        ConnData(int fd, AddrPair &&addr_) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse()), addr(addr_) {}
 
         ~ConnData() {
             cleanupReq();
@@ -162,7 +159,7 @@ namespace simple_http {
     class Acceptor {
     public:
         Acceptor(SimpleServer *server, EpollHandle *epollHandle) : th_(nullptr), server_(server),
-            sockEventData_(), pairEventData_(), socketFd_(-1), handle_(epollHandle) {}
+                                                                   sockEventData_(), pairEventData_(), socketFd_(-1), handle_(epollHandle) {}
         ~Acceptor();
 
         void start();
@@ -184,20 +181,21 @@ namespace simple_http {
 
     class IOWorker {
     public:
-        explicit IOWorker(SimpleServer *server, EpollHandle *epollHandle) : handle_(epollHandle), server_(server), th_(nullptr) {}
+        explicit IOWorker(SimpleServer *server) : handle_(), server_(server), th_(nullptr) {}
         ~IOWorker();
         void start();
         void stop();
+        void addConn(int fd, AddrPair &&addr);
 
     protected:
         void eventLoop();
         void handleRead(ConnData *eventDataPtr);
         void handleWrite(ConnData *eventDataPtr);
-        void cleanupEvent(int fd, EventBase *event);
+        void cleanupEvent(EventBase *event);
 
     private:
         static std::atomic_int id_;
-        EpollHandle *handle_;
+        std::unique_ptr<EpollHandle> handle_;
         SimpleServer *server_;
         std::unique_ptr<std::thread> th_;
         int pair_[2];
@@ -228,14 +226,17 @@ namespace simple_http {
         bool isRunning() const;
         void addHandlers(const HandlersMap &handlers);
         void addHandlers(URLFormat path, HTTPMethod method, HandlerFunction fn);
-        void printConnStat() const;
+        int getActiveConnStat() const;
 
     private:
-        void workerFn(HandlerTask &&task);
-        std::pair<std::string, int> addrParse(struct sockaddr *sa);
+        // void workerFn(HandlerTask &&task);
+        AddrPair addrParse(struct sockaddr *sa);
         std::pair<bool, HandlerFunction> getHandler(HTTPMethod method, const std::string &path);
-        void addActiveConn(ConnData* conn);
-        void removeActiveConn(ConnData* conn);
+        void addConnection(int i, int fd, AddrPair &&addr);
+        ConnData *getOrCreateConn(int fd, AddrPair &&addr);
+        bool pushCacheConn(ConnData *conn);
+        void incActiveConn();
+        void decActiveConn();
         static void onExpectContinue(HTTPRequest *req, HTTPResponse *res);
         static void onDefaultGet(HTTPRequest *req, HTTPResponse *res);
 
@@ -250,13 +251,13 @@ namespace simple_http {
         HandlersMap handlers_;
         DefaultHandlersMap defaultHandlers_;
         std::atomic_bool _stop;
-        std::vector<EpollHandle> _epollHandles;// for io workers
-        EpollHandle accEpoll_;                 // for acceptor
+        EpollHandle accEpoll_;// for acceptor
         std::unique_ptr<Acceptor> acceptor_;
         std::vector<IOWorker *> ioWorkers_;
-        mutable std::mutex mtx_;
-        std::vector<ConnData* > activeConn_;
-        std::stack<ConnData*> cacheConn_;
+        mutable std::mutex mtx_;    // for caching connections
+        std::condition_variable cv_;// notify when cached connection available
+        std::atomic_int activeConnCnt{0};
+        std::stack<ConnData *> cacheConn_;
     };
 
 }// namespace simple_http
