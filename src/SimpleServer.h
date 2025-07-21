@@ -163,7 +163,7 @@ namespace simple_http {
         ~Acceptor();
 
         void start();
-        void stop();
+        bool stop();
 
     private:
         void initSocket();
@@ -184,7 +184,7 @@ namespace simple_http {
         explicit IOWorker(SimpleServer *server) : handle_(), server_(server), th_(nullptr) {}
         ~IOWorker();
         void start();
-        void stop();
+        bool stop();
         void addConn(int fd, AddrPair &&addr);
 
     protected:

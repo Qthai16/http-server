@@ -47,6 +47,8 @@ if (USE_BOOST)
     # REQUIRE_BOOST_LIBRARIES(BOOST_COMPONENTS)
 endif()
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # add_definitions(-DOPTION_ABC)
 
 set(SRC_FILES
@@ -89,11 +91,12 @@ target_link_libraries(http-server PRIVATE
     $<$<CONFIG:Debug>:-fsanitize=address>
 )
 
-# add_custom_command(TARGET http-server POST_BUILD
-#     COMMAND ${CMAKE_COMMAND} -E copy_directory
-#         ${CMAKE_SOURCE_DIR}/static
-#         ${CMAKE_BINARY_DIR}/static
-# )
+add_custom_command(TARGET http-server POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E create_symlink
+        ${CMAKE_SOURCE_DIR}/static
+        ${CMAKE_BINARY_DIR}/static
+        DEPENDS ${CMAKE_SOURCE_DIR}/static
+)
 
 if (BUILD_TEST)
     message(STATUS "Building tests")

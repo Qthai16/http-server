@@ -135,11 +135,11 @@ namespace simple_http {
         });
     }
 
-    void Acceptor::stop() {
+    bool Acceptor::stop() {
         static char buf[1] = {'\0'};
         assert(pair_[1] > 0);
         auto rv = write(pair_[1], buf, 1);
-        assert(rv == 1);
+        return rv == 1;
     }
 
     Acceptor::~Acceptor() {
@@ -180,11 +180,11 @@ namespace simple_http {
         });
     }
 
-    void IOWorker::stop() {
+    bool IOWorker::stop() {
         static char buf[1] = {'\0'};
         assert(pair_[1] > 0);
         auto rv = write(pair_[1], buf, 1);
-        assert(rv == 1);
+        return rv == 1;
     }
 
     void IOWorker::addConn(int fd, std::pair<std::string, int> &&addr) {
@@ -415,15 +415,19 @@ namespace simple_http {
     }
 
     std::pair<std::string, int> SimpleServer::addrParse(struct sockaddr *sa) {
+        if (!sa || sa->sa_family != AF_INET && sa->sa_family != AF_INET6) {
+            return {};
+        }
         char s[INET6_ADDRSTRLEN];
         void *host;
         int port;
         if (sa->sa_family == AF_INET) {
             host = &(((struct sockaddr_in *) sa)->sin_addr);
             port = ((struct sockaddr_in *) sa)->sin_port;
+        } else {
+            host = &(((struct sockaddr_in6 *) sa)->sin6_addr);
+            port = ((struct sockaddr_in6 *) sa)->sin6_port;
         }
-        host = &(((struct sockaddr_in6 *) sa)->sin6_addr);
-        port = ((struct sockaddr_in6 *) sa)->sin6_port;
         ::inet_ntop(sa->sa_family, host, s, sizeof(s));
         return {std::string(s, sizeof(s)), port};
     }

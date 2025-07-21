@@ -30,3 +30,9 @@
     ulimit -n 10000 && ./http-server 0.0.0.0 11225
     ulimit -n 10000 && ./benchmark.sh 2>&1 | tee benchmark-result.txt
 ```
+
+#### Run static analysis
+Prequesites: install run-clang-tidy and clang-tidy
+```sh
+run-clang-tidy -clang-tidy-binary /usr/bin/clang-tidy -p <build_dir> -quiet
+```
