@@ -204,15 +204,14 @@ namespace libs {
         std::string encode(const char *buffer, size_t length) {
             // todo: check error code
             BIO *bio, *b64;
-            BUF_MEM *bufferPtr;
             b64 = BIO_new(BIO_f_base64());
             bio = BIO_new(BIO_s_mem());
-            BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);
+            // BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
             bio = BIO_push(b64, bio);
             BIO_write(bio, buffer, length);
             BIO_flush(bio);
+            BUF_MEM *bufferPtr;
             BIO_get_mem_ptr(bio, &bufferPtr);
-            BIO_set_close(bio, BIO_NOCLOSE);
             std::string ret(bufferPtr->data, bufferPtr->length);
             BIO_free_all(bio);
             return ret;
@@ -224,8 +223,8 @@ namespace libs {
             std::string ret(msgLen, '\0');
             BIO *bio = BIO_new_mem_buf(msg, msgLen);
             BIO *base64 = BIO_new(BIO_f_base64());
+            // BIO_set_flags(base64, BIO_FLAGS_BASE64_NO_NL);
             bio = BIO_push(base64, bio);
-            BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);// no newline
             auto outLen = BIO_read(bio, ret.data(), msgLen);
             BIO_free_all(bio);
             ret.resize(outLen);

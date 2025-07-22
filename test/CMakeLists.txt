@@ -35,15 +35,27 @@ target_include_directories(test-libs PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_PREFIX_PATH}/include
 )
+
+# notes: disable address space layout randomization (ASLR) when build test with ASan
+# echo 0 | sudo tee /proc/sys/kernel/randomize_va_space # disable
+# echo 2 | sudo tee /proc/sys/kernel/randomize_va_space # re-enable
+# https://stackoverflow.com/questions/78136716/addresssanitizerdeadlysignal-from-fsanitize-address-flag
+
+target_compile_options(test-libs PRIVATE
+    -g
+    -fsanitize=address -fno-omit-frame-pointer
+)
+
 # target_link_directories(test-libs PRIVATE
 #         ${CMAKE_PREFIX_PATH}/lib
 #         ${CMAKE_PREFIX_PATH}/lib64
 # )
 
 target_link_libraries(test-libs PRIVATE
-    pthread
     ssl crypto
     gtest gtest_main
+    pthread
+    -fsanitize=address
 )
 
 gtest_discover_tests(test-libs)
