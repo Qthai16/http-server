@@ -10,7 +10,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
 
 if (NOT DEFINED CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 17)
-    message(STATUS "Unset CXX standatd, default to C++17.")
+    message(STATUS "Unset CXX standard, default to C++17.")
     # message(STATUS "To specify a different C++ language level, set CMAKE_CXX_STANDARD")
 endif()
 
@@ -99,6 +99,8 @@ add_custom_command(TARGET http-server POST_BUILD
 )
 
 if (BUILD_TEST)
+    include(FetchGoogleTest)
+    REQUIRE_GTEST(1.16.0)
     message(STATUS "Building tests")
     enable_testing()
     add_subdirectory(test)
