@@ -30,7 +30,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -yq
-          sudo apt-get install -y --no-install-recommends ${{BUILD_DEPS}}
+          sudo apt-get install -y --no-install-recommends ${{env.BUILD_DEPS}}
 
       - name: Configure CMake
         run: |
