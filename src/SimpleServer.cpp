@@ -327,12 +327,6 @@ namespace simple_http {
     void IOWorker::handleWrite(ConnData *connPtr) {
         assert(connPtr);
         auto fd = connPtr->_fd;
-        if (connPtr->res->write_done()) {
-            connPtr->resetData();
-            handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
-            server_->stat_.incSuccessReq();
-            return;
-        }
         connPtr->res->write_reponse();
         auto sendbuf = connPtr->res->get_buf();
         auto sendBytes = ::send(fd, sendbuf->rd_pos(), sendbuf->size(), MSG_NOSIGNAL);
@@ -341,10 +335,10 @@ namespace simple_http {
             if (sendbuf->empty()) {// all data is sent, reset buf for next write_response
                 sendbuf->resetBuf();
             }
-            handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
             if (!connPtr->res->write_done()) {// still have bytes to send
                 handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
             } else {
+                // cleanupEvent(connPtr);
                 connPtr->resetData();
                 handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
                 server_->stat_.incSuccessReq();

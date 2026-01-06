@@ -69,15 +69,15 @@ static void SendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *res
         response->insert_header({"Content-Type", "application/json"});
         return;
     }
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        // send internal error
-        std::string sendData = R"JSON({"errors": "failed to open file"})JSON";
-        response->status_code(HTTPStatusCode::InternalServerError);
-        response->str_body(sendData);
-        response->insert_header({"Content-Type", "application/json"});
-        return;
-    }
+    // std::ifstream file(path);
+    // if (!file.is_open()) {
+    //     // send internal error
+    //     std::string sendData = R"JSON({"errors": "failed to open file"})JSON";
+    //     response->status_code(HTTPStatusCode::InternalServerError);
+    //     response->str_body(sendData);
+    //     response->insert_header({"Content-Type", "application/json"});
+    //     return;
+    // }
     // file.close();// close here bc HTTPResponse will open this file
 
     auto extension = fs::path(path).extension().string();
@@ -91,8 +91,7 @@ static void SendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *res
     // ss << file.rdbuf();
     // response->str_body(ss.str());
     response->file_body(path);
-    // todo: leaked mem due to connection not being clean up
-    // response->set_file_body(path);
+    // todo: leaked mem due to connection not being clean up (tested by chrome)
 }
 
 static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {

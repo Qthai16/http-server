@@ -407,19 +407,40 @@ namespace simple_http {
     }
 
     HTTPResponse::HTTPResponse(HTTPResponse &&other) {
-        // todo: rewrite this
-        _version = other._version;
-        _statusCode = other._statusCode;
-        _headers = other._headers;
-        // _body = std::move(other._body);
-        // _inMemoryBody = std::move(other._inMemoryBody);
+        _version = std::move(other._version);
+        _statusCode = std::move(other._statusCode);
+        _headers = std::move(other._headers);
+        buffer_ = std::move(other.buffer_);
+        memBody_ = std::move(other.memBody_);
+        fileFd_ = other.fileFd_;
+        wrOff_ = other.wrOff_;
         _readType = other._readType;
         _finishWriteHeader = other._finishWriteHeader;
         _totalWrite = other._totalWrite;
         _contentLength = other._contentLength;
     }
 
+    HTTPResponse& HTTPResponse::operator=(HTTPResponse &&other) {
+        if (this == &other) return *this;
+        _version = std::move(other._version);
+        _statusCode = std::move(other._statusCode);
+        _headers = std::move(other._headers);
+        buffer_ = std::move(other.buffer_);
+        memBody_ = std::move(other.memBody_);
+        fileFd_ = other.fileFd_;
+        wrOff_ = other.wrOff_;
+        _readType = other._readType;
+        _finishWriteHeader = other._finishWriteHeader;
+        _totalWrite = other._totalWrite;
+        _contentLength = other._contentLength;
+
+        other.resetData();
+        other.buffer_.reset();
+        return *this;
+    }
+
     void HTTPResponse::write_reponse() {
+        if (write_done()) return;
         if (!_finishWriteHeader)
             write_header();
         switch (_readType) {
@@ -544,7 +565,12 @@ namespace simple_http {
             throw std::runtime_error("failed to open stream");
         }
         fileFd_ = fd;
-        _contentLength = libs::file_size(path.c_str());
+        // call fstat directly here instead of libs::file_size to avoid opening file again
+        struct ::stat st;
+        if (::fstat(fileFd_, &st) != 0)
+            throw std::runtime_error("stat failed");
+        _contentLength = st.st_size;
+        // _contentLength = libs::file_size(path.c_str());
     }
 
     void HTTPResponse::insert_header(std::pair<std::string, std::string> val) {

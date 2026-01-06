@@ -111,6 +111,7 @@ namespace simple_http {
         HTTPResponse(const HTTPResponse &) = delete;
         const HTTPResponse &operator=(const HTTPResponse &other) = delete;
         HTTPResponse(HTTPResponse &&other);
+        HTTPResponse& operator=(HTTPResponse &&other);
 
     public: // for server and io worker
         void write_reponse();
@@ -131,8 +132,6 @@ namespace simple_http {
         void write_header();
         void write_mem_body();
         void write_file_body();
-        // std::size_t serialize_header(char *buffer, std::size_t bufferSize);
-        // std::size_t serialize_body(std::istream &is, char *buffer, std::size_t bufferSize);
 
     private:
         // static size_t inline maxBufferSize_ = (2 << 16) - 1;
