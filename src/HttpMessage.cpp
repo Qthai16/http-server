@@ -3,6 +3,7 @@
 #include "libs/StrUtils.h"
 #include "libs/FileUtils.h"
 #include "libs/Defines.h"
+#include "libs/MemBuffer.h"
 
 #include <sys/types.h>
 #include <unistd.h>
@@ -274,21 +275,21 @@ namespace simple_http {
         std::size_t totalCnt = 0;
         std::size_t cnt = 0;
         auto getLine = [](const char *buf, std::size_t size, std::string &out) -> std::size_t {
-            auto i = 0;
-            auto ret = 0;
+            if (size == 0) return 0;
+            int i = 0, cnt = 0;
             do {
                 if (buf[i] == '\n') {
-                    ret += 1;
-                    return ret;
+                    cnt += 1;
+                    return cnt;
                 }
                 out.push_back(buf[i]);
-                ret += 1;
+                cnt += 1;
             } while (++i < size);
-            return ret;
+            return cnt;
         };
         // first line is [method path version]
         cnt = getLine(buffer, bufsize, line);
-        if (line.empty()) return 0;
+        if (line.empty() || cnt == 0) return 0;
         else {
             auto tokens = libs::split_str(line, " ");
             if (tokens.size() != 3)
@@ -311,6 +312,7 @@ namespace simple_http {
         do {
             line.clear();
             cnt = getLine(buffer, bufsize, line);
+            if (cnt == 0 || line.empty()) break;
             if (!line.empty()) {
                 totalCnt += cnt;
                 buffer += cnt;
@@ -338,6 +340,7 @@ namespace simple_http {
         if (!_finishParseHeaders) {
             headerSize = parse_headers(buffer, bytesCount);
             assert(headerSize <= bytesCount);
+            _totalRead += headerSize;
         }
         if (_finishParseHeaders) {
             if (!oldVal && bytesCount > headerSize) {
@@ -370,7 +373,7 @@ namespace simple_http {
             if (dict.empty())
                 return "";
             std::string serializeStr = "{";
-            for (const auto &ele : dict) {
+            for (const auto &ele: dict) {
                 serializeStr += libs::simple_format(R"JSON("{}": "{}",)JSON", ele.first, ele.second);
             }
             serializeStr.pop_back();// remove last comma (,)
@@ -382,151 +385,128 @@ namespace simple_http {
         return {};// change to void?
     }
 
-    HTTPResponse::HTTPResponse() : _version(HTTPVersion::HTTP_1_1),
-                                   _statusCode(HTTPStatusCode::OK),
-                                   _headers(),
-                                   _body(),
-                                   _inMemoryBody(),
-                                   _readType(ReadType::UNINIT),
-                                   _finishWriteHeader(false),
-                                   _totalWrite(0),
-                                   _contentLength(0) {}
-
-    HTTPResponse::~HTTPResponse() {
-        if (_body.is_open())
-            _body.close();
-        // if (fileFd_ > 0) ::close(fileFd_);
+    HTTPResponse::HTTPResponse(size_t bufsize)
+        : _version(HTTPVersion::HTTP_1_1),
+          _statusCode(HTTPStatusCode::OK),
+          _headers(),
+          buffer_{nullptr},
+          memBody_{},
+          fileFd_{-1},
+          _readType(ReadType::UNINIT),
+          _finishWriteHeader(false),
+          _totalWrite(0),
+          _contentLength(0) {
+        init_buffer(bufsize);
     }
 
-    // HTTPResponse::HTTPResponse(HTTPResponse &&other) {
-    //     _version = other._version;
-    //     _statusCode = other._statusCode;
-    //     _headers = other._headers;
-    //     // _body = std::move(other._body);
-    //     // _inMemoryBody = std::move(other._inMemoryBody);
-    //     _readType = other._readType;
-    //     _finishWriteHeader = other._finishWriteHeader;
-    //     _totalWrite = other._totalWrite;
-    //     _contentLength = other._contentLength;
-    // }
+    HTTPResponse::~HTTPResponse() {
+        if (fileFd_ > 0) {
+            ::close(fileFd_);
+            fileFd_ = -1;
+        }
+    }
 
-    std::size_t HTTPResponse::serialize_header(char *buffer, std::size_t bufferSize) {
-        // todo: change argument to buffer type; then write directly to buffer
+    HTTPResponse::HTTPResponse(HTTPResponse &&other) {
+        // todo: rewrite this
+        _version = other._version;
+        _statusCode = other._statusCode;
+        _headers = other._headers;
+        // _body = std::move(other._body);
+        // _inMemoryBody = std::move(other._inMemoryBody);
+        _readType = other._readType;
+        _finishWriteHeader = other._finishWriteHeader;
+        _totalWrite = other._totalWrite;
+        _contentLength = other._contentLength;
+    }
+
+    void HTTPResponse::write_reponse() {
+        if (!_finishWriteHeader)
+            write_header();
+        switch (_readType) {
+            case ReadType::IN_MEMORY_READ: {
+                write_mem_body();
+            } break;
+            case ReadType::FILE_READ: {
+                write_file_body();
+            } break;
+            default:
+                break;
+        }
+    }
+
+    std::shared_ptr<BufferType> HTTPResponse::get_buf() const {
+        return buffer_;
+    }
+
+    void HTTPResponse::init_buffer(size_t size) {
+        buffer_.reset(new libs::MemBuf(size));
+    }
+
+    void HTTPResponse::write_header() {
         std::stringstream ss;
         libs::simple_format(ss, "{} {} {}\r\n", _version, static_cast<int>(_statusCode), _statusCode);
         if (_contentLength > 0)
             _headers["Content-Length"] = std::to_string(_contentLength);
-        for (const auto &ele : _headers) {
-            libs::simple_format(ss, "{}: {}\r\n", ele.first, ele.second);
+        for (const auto &[key, value]: _headers) {
+            libs::simple_format(ss, "{}: {}\r\n", key, value);
         }
         ss << "\r\n";
-        auto text = ss.str();
-        auto headerSize = text.size();
-        if (headerSize > bufferSize) {
-            // todo: cho nay maybe co the allocate them memory
-            throw std::logic_error("buffer to small");
-            return headerSize;
-        }
-        text.copy(buffer, headerSize);
+        std::string text(std::move(ss.str()));
+        buffer_->write(text.data(), text.size());
         _finishWriteHeader = true;
-        return headerSize;
     }
 
-    std::size_t HTTPResponse::serialize_body(std::istream &is, char *buffer, std::size_t bufferSize) {
-        assert(_readType == ReadType::FILE_READ || _readType == ReadType::IN_MEMORY_READ);
-        if (bufferSize <= 0) {// todo: remove this logic
-            throw std::logic_error("buffer to small");
-            return 0;
-        }
-        if (bufferSize > _contentLength) {
-            // buffer is enough to write whole response
-            is.read(buffer, _contentLength);
-            _totalWrite = _contentLength;
-            return _contentLength;
+    void HTTPResponse::write_mem_body() {
+        // todo: copy for now, use view ownership with readv/writev later
+        assert(!memBody_.empty() && _readType == ReadType::IN_MEMORY_READ);
+        size_t len = 0;
+        if (_contentLength - _totalWrite <= buffer_->cap() - buffer_->size()) {
+            // remain data or whole response
+            len = _contentLength - _totalWrite;
         } else {
-            if (_contentLength - is.tellg() > bufferSize) {// first chunk or n-chunks
-                is.read(buffer, bufferSize);
-                _totalWrite += bufferSize;
-                return bufferSize;
-            } else {// last chunk
-                auto lastBytes = _contentLength - is.tellg();
-                is.read(buffer, lastBytes);
-                _totalWrite += lastBytes;
-                // _totalWrite = _contentLength;
-                return lastBytes;
-            }
+            len = buffer_->cap() - buffer_->size();
         }
+        buffer_->write(memBody_.data() + wrOff_, len);
+        wrOff_ += len;
+        _totalWrite += len;
     }
 
-    std::size_t HTTPResponse::serialize_reponse(char *buffer, std::size_t bufferSize) {
-        std::size_t headerSize = 0;
-        std::size_t bodySize = 0;
-        if (!_finishWriteHeader) {
-            headerSize = serialize_header(buffer, bufferSize);
-            buffer += headerSize;
-            bufferSize -= headerSize;
+    void HTTPResponse::write_file_body() {
+        assert(fileFd_ > 0 && _readType == ReadType::FILE_READ);
+        size_t len = 0;
+        if (_contentLength - _totalWrite <= buffer_->cap() - buffer_->size()) {
+            len = _contentLength - _totalWrite;
+        } else {
+            len = buffer_->cap() - buffer_->size();
         }
-
-        if (_readType == ReadType::FILE_READ) {
-            bodySize = serialize_body(_body, buffer, bufferSize);
-        } else if (_readType == ReadType::IN_MEMORY_READ) {
-            bodySize = serialize_body(_inMemoryBody, buffer, bufferSize);
-        } else {// empty body
-        }
-        return headerSize + bodySize;
+        libs::read(fileFd_, wrOff_, buffer_->wr_pos(), len);
+        buffer_->incWrPos(len);
+        wrOff_ += len;
+        _totalWrite += len;
     }
 
-    // const BufferType HTTPResponse::write_header(MemBuf *membuf) {
-    //     std::stringstream ss;
-    //     libs::simple_format(ss, "{} {} {}\r\n", _version, static_cast<int>(_statusCode), _statusCode);
-    //     if (_contentLength > 0)
-    //         _headers["Content-Length"] = std::to_string(_contentLength);
-    //     for (const auto &[key, value]: _headers) {
-    //         libs::simple_format(ss, "{}: {}\r\n", key, value);
-    //     }
-    //     ss << "\r\n";
-    //     std::string text(std::move(ss.str()));
-    //     membuf->write(text.data(), text.size());
-    //     _finishWriteHeader = true;
-    //     BufferType ret;
-    //     membuf->get_view(&ret.buf, &ret.len);
-    //     return ret;
-    // }
-
-    // const BufferType HTTPResponse::write_body() {
-    //     assert(_readType == ReadType::FILE_READ || _readType == ReadType::IN_MEMORY_READ);
-    //     if (_readType == ReadType::IN_MEMORY_READ)
-    //         return {memBody_.data(), memBody_.size()};
-    //     assert(fileFd_ > 0);
-    //     static thread_local char localBuf[4096]{};
-    //     auto cnt = libs::read(fileFd_, fileOff_, localBuf, sizeof(localBuf));
-    //     fileOff_ += cnt;
-    //     return {localBuf, static_cast<size_t>(cnt)};
-    // }
-
-    // const BufferType HTTPResponse::write_response(MemBuf *membuf) {
-    //     if (!_finishWriteHeader)
-    //         return write_header(membuf);
-    //     return write_body();
-    // }
-
-    bool HTTPResponse::writeDone() const {
-        if (_contentLength == 0)
-            return _finishWriteHeader;
-        return _finishWriteHeader && (_totalWrite >= _contentLength);
+    bool HTTPResponse::write_done() const {
+        return _finishWriteHeader && (_contentLength > 0 ? _totalWrite >= _contentLength : 1);
     }
 
     void HTTPResponse::resetData() {
         _headers.clear();
-        if (_readType == ReadType::IN_MEMORY_READ) {
-            // memBody_.clear();
-            _inMemoryBody.seekg(0, std::ios_base::beg);
-            _inMemoryBody.seekp(0, std::ios_base::beg);
-        } else if (_readType == ReadType::FILE_READ) {
-            _body.close();
-            // ::close(fileFd_);
-            // fileOff_ = 0;
+        switch (_readType) {
+            case ReadType::IN_MEMORY_READ: {
+                memBody_.clear();
+                wrOff_ = 0;
+            } break;
+            case ReadType::FILE_READ: {
+                if (fileFd_ > 0) {
+                    ::close(fileFd_);
+                    fileFd_ = -1;
+                }
+                wrOff_ = 0;
+            } break;
+            default:
+                break;
         }
+        buffer_->resetBuf();
         _readType = ReadType::UNINIT;
         _finishWriteHeader = false;
         _totalWrite = 0;
@@ -537,23 +517,34 @@ namespace simple_http {
         _statusCode = statusCode;
     }
 
-    void HTTPResponse::set_str_body(const std::string &content) {
-        _readType = ReadType::IN_MEMORY_READ;
-        // memBody_ = content;
-        // _contentLength = content.size();
-        _inMemoryBody << content;
-        _contentLength = content.length();
+    void HTTPResponse::http_code(HTTPCode httpCode) {
+        _statusCode = static_cast<HTTPStatusCode>(httpCode);
     }
 
-    void HTTPResponse::set_file_body(std::string path) {
+    void HTTPResponse::str_body(const std::string &content) {
+        if (expr_unlikely(content.empty())) return;
+        _readType = ReadType::IN_MEMORY_READ;
+        memBody_.resize(content.size());
+        memBody_ = content;
+        _contentLength = memBody_.size();
+    }
+
+    void HTTPResponse::str_body(const char *buf, size_t size) {
+        if (expr_unlikely(size == 0)) return;
+        _readType = ReadType::IN_MEMORY_READ;
+        memBody_.resize(size);
+        memcpy(&memBody_.at(0), buf, size);
+        _contentLength = memBody_.size();
+    }
+
+    void HTTPResponse::file_body(std::string path) {
         _readType = ReadType::FILE_READ;
-        // fileFd_ = ::open(path.c_str(), O_RDONLY, 00644);
-        // fileOff_ = 0;
-        // struct ::stat st;
-        // ::fstat(fileFd_, &st), 0;
-        // _contentLength = st.st_size;
-        _body.open(path);
-        _contentLength = libs::content_length(_body);
+        auto fd = open(path.c_str(), O_RDONLY, 0644);
+        if (fd < 0) {
+            throw std::runtime_error("failed to open stream");
+        }
+        fileFd_ = fd;
+        _contentLength = libs::file_size(path.c_str());
     }
 
     void HTTPResponse::insert_header(std::pair<std::string, std::string> val) {

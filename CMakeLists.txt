@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(http-server-from-scratch C CXX)
+project(cpp-playground C CXX)
 
-set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+# set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # set(CMAKE_CXX_STANDARD 17)
 # set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,8 +13,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
 
 if (NOT DEFINED CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 17)
-    message(STATUS "Unset CXX standard, default to C++17.")
-    # message(STATUS "To specify a different C++ language level, set CMAKE_CXX_STANDARD")
+    message(STATUS "Unset CXX standard, set to: ${CMAKE_CXX_STANDARD}")
 endif()
 
 # uncomment to hard-coded clang build
@@ -24,6 +26,7 @@ option(USE_OPENSSL "Build with OpenSSL" OFF)
 option(USE_LIBCURL "Build with libcurl" OFF)
 option(USE_BOOST "Build with boost" OFF)
 option(BUILD_TEST "Build test" OFF)
+option(BUILD_EXP "Build experience code" OFF)
 
 if (USE_OPENSSL)
     # libcurl4-openssl-dev
@@ -47,12 +50,9 @@ if (USE_BOOST)
     # REQUIRE_BOOST_LIBRARIES(BOOST_COMPONENTS)
 endif()
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# add_definitions(-DOPTION_ABC)
-
 set(SRC_FILES
     ${SRC_FILES}
+    json11/json11.cpp
     src/HttpMessage.cpp
     src/SimpleServer.cpp
 )
@@ -105,3 +105,97 @@ if (BUILD_TEST)
     enable_testing()
     add_subdirectory(test)
 endif()
+
+if (BUILD_EXP)
+    # io_uring
+    add_executable(uring-exp
+        exp/iouring-test.cpp
+    )
+
+    target_link_libraries(uring-exp PRIVATE
+        pthread
+        rt
+        uring
+        $<$<CONFIG:Debug>:-fsanitize=address>
+    )
+
+    target_compile_options(uring-exp PRIVATE
+        $<$<CONFIG:Debug>:-g -fsanitize=address -fno-omit-frame-pointer>
+    )
+
+    # coroutine
+    add_executable(coro-exp
+        exp/coroutine-test.cpp
+    )
+
+    target_compile_options(coro-exp PRIVATE
+        -g
+        -fcoroutines
+    )
+    set_target_properties(coro-exp PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+    )
+
+    target_link_libraries(coro-exp PRIVATE
+        pthread
+        rt
+    )
+
+    add_executable(manual-event
+        exp/manual-event.cpp
+    )
+
+    target_compile_options(manual-event PRIVATE
+        -g
+        -fcoroutines
+    )
+
+    target_link_libraries(manual-event PRIVATE
+        pthread
+        rt
+    )
+    set_target_properties(manual-event PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+    )
+endif()
+
+# add_library(abclib
+#     ${SRC_FILES}
+#     src/HttpMessage.cpp
+#     src/SimpleServer.cpp
+# )
+
+# install(TARGETS abclib
+#         EXPORT abclibTargets
+#         ARCHIVE DESTINATION lib
+#         LIBRARY DESTINATION lib
+#         RUNTIME DESTINATION bin)
+
+# install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/inc/
+#     DESTINATION include/abclib
+#     FILES_MATCHING PATTERN "*.h"
+# )
+
+# # Export the targets to a script
+# install(EXPORT abclibTargets
+#         FILE abclibTargets.cmake
+#         NAMESPACE abclib::
+#         DESTINATION lib/cmake/abclib
+# )
+
+# # Create and install the package configuration file
+# include(CMakePackageConfigHelpers)
+# write_basic_package_version_file(
+#         "${CMAKE_CURRENT_BINARY_DIR}/abclibConfigVersion.cmake"
+#         VERSION ${PROJECT_VERSION}
+#         COMPATIBILITY AnyNewerVersion
+# )
+
+# configure_file(abclibConfig.cmake.in abclibConfig.cmake @ONLY)
+# install(FILES
+#         "${CMAKE_CURRENT_BINARY_DIR}/abclibConfig.cmake"
+#         "${CMAKE_CURRENT_BINARY_DIR}/abclibConfigVersion.cmake" 
+#         DESTINATION lib/cmake/abclib
+# )

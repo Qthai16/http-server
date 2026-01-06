@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include "libs/FileUtils.h"
+#include "libs/Defines.h"
 
 #define OPEN_PERM 00644
 
@@ -60,4 +61,21 @@ TEST(file_utils, read_write) {
     std::string readBuf2(readBuf.size(), '\0');
     ASSERT_EQ(libs::read(fd2, 0, readBuf2.data(), readBuf2.size()), readBuf2.size());
     ASSERT_EQ(readBuf2, readBuf);
+}
+
+TEST(file_utils, file_size) {
+    {
+        std::string data("this is a text line\n");
+        std::ofstream in("textfile.txt", std::ios::out | std::ios::trunc);
+        in << data;
+        in.close();
+        EXPECT_EQ(libs::file_size("textfile.txt"), data.size());
+    }
+    {
+        std::string data{0x38, 0x12,0x36,0x1f,0x27,0x12,0x11,0x63,0x24, 0x17, 0x2c, 0x2d, 0x4e};
+        std::ofstream in("binfile.txt", std::ios::out | std::ios::trunc | std::ios::binary);
+        in << data;
+        in.close();
+        EXPECT_EQ(libs::file_size("binfile.txt"), data.size());
+    }
 }

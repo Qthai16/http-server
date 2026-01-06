@@ -8,9 +8,14 @@
 #include <string>
 #include <algorithm>
 #include <streambuf>
+#include <memory>
 
+namespace libs {
+    class MemBuf;
+}
 namespace simple_http {
     using HeadersMap = std::map<std::string, std::string>;
+    using BufferType = libs::MemBuf;
 
     enum class HTTPMethod {
         GET,
@@ -58,17 +63,40 @@ namespace simple_http {
         HttpVersionNotSupported = 505
     };
 
+    enum HTTPCode : uint16_t {
+        CODE_100 = 100,
+        CODE_200 = 200,
+        CODE_201 = 201,
+        CODE_202 = 202,
+        CODE_203 = 203,
+        CODE_204 = 204,
+        CODE_205 = 205,
+        CODE_206 = 206,
+        CODE_300 = 300,
+        CODE_301 = 301,
+        CODE_302 = 302,
+        CODE_304 = 304,
+        CODE_400 = 400,
+        CODE_401 = 401,
+        CODE_403 = 403,
+        CODE_404 = 404,
+        CODE_405 = 405,
+        CODE_408 = 408,
+        CODE_418 = 418,
+        CODE_500 = 500,
+        CODE_501 = 501,
+        CODE_502 = 502,
+        CODE_503 = 503,
+        CODE_504 = 504,
+        CODE_505 = 505
+    };
+
     std::string method_str(const HTTPMethod &method);
     std::string version_str(const HTTPVersion &version);
     std::string status_code_str(const HTTPStatusCode &code);
     std::pair<bool, HTTPVersion> str_to_http_version(const std::string &str);
     std::pair<bool, HTTPMethod> str_to_method(const std::string &str);
     std::string headers_get_field(const HeadersMap &headers, std::string key);
-
-    struct BufferType {
-        char *buf;
-        size_t len;
-    };
 
     class HTTPResponse {
     public:
@@ -78,41 +106,48 @@ namespace simple_http {
             IN_MEMORY_READ = 1
         };
 
-        HTTPResponse();
+        HTTPResponse(size_t bufsize = 8192);
         ~HTTPResponse();
         HTTPResponse(const HTTPResponse &) = delete;
         const HTTPResponse &operator=(const HTTPResponse &other) = delete;
         HTTPResponse(HTTPResponse &&other);
 
-    public:                                                                 // for server and io worker
-        std::size_t serialize_reponse(char *buffer, std::size_t bufferSize);// todo: this should return Buffer{const char* data, size_t len} (view only data)
-        bool writeDone() const;
+    public: // for server and io worker
+        void write_reponse();
+        std::shared_ptr<BufferType> get_buf() const;
+        bool write_done() const;
         void resetData();
 
     public:// for handler
         void status_code(HTTPStatusCode statusCode);
-        void set_str_body(const std::string &content);
-        void set_file_body(std::string path);
+        void http_code(HTTPCode httpCode);
+        void str_body(const std::string &content);
+        void str_body(const char* buf, size_t size);
+        void file_body(std::string path);
         void insert_header(std::pair<std::string, std::string> val);
 
     private:
-        std::size_t serialize_header(char *buffer, std::size_t bufferSize);
-        std::size_t serialize_body(std::istream &is, char *buffer, std::size_t bufferSize);
+        void init_buffer(size_t size);
+        void write_header();
+        void write_mem_body();
+        void write_file_body();
+        // std::size_t serialize_header(char *buffer, std::size_t bufferSize);
+        // std::size_t serialize_body(std::istream &is, char *buffer, std::size_t bufferSize);
 
     private:
+        // static size_t inline maxBufferSize_ = (2 << 16) - 1;
         HTTPVersion _version;
         HTTPStatusCode _statusCode;
         HeadersMap _headers;
-        std::ifstream _body;// bad, should refactor later
-        std::stringstream _inMemoryBody;
 
+        std::shared_ptr<BufferType> buffer_;
         std::string memBody_;
         int fileFd_;
-        int64_t fileOff_;
+        int64_t wrOff_{0};
         ReadType _readType;
         bool _finishWriteHeader;
-        std::size_t _totalWrite;
-        std::size_t _contentLength;
+        std::size_t _totalWrite{0};
+        std::size_t _contentLength{0};
     };
 
     struct HTTPRequest {

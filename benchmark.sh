@@ -5,5 +5,7 @@
 wait
 ./wrk -c2000 -d5s -t8 http://localhost:11225/
 wait
+./wrk -c2000 -d5s -t8 http://localhost:11225/stat
+wait
 ./wrk -c5000 -d5s -t8 -s post.lua http://localhost:11225/file
 wait

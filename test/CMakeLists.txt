@@ -58,6 +58,8 @@ target_link_libraries(test-libs PRIVATE
     -fsanitize=address
 )
 
+# PROPERTIES ENVIRONMENT "GTEST_OUTPUT=xml:${CMAKE_BINARY_DIR}/test_results/"
+
 gtest_discover_tests(test-libs)
 
 # todo: test http server
@@ -68,7 +70,3 @@ gtest_discover_tests(test-libs)
 
 # todo: benchmark http server throughput
 # add_executable(benchmark-http-server)
-
-add_test(NAME test-libs COMMAND test-libs)
-set_tests_properties(test-libs PROPERTIES LABELS "unit")
-

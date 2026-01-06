@@ -28,7 +28,9 @@
 #define BUFFER_SIZE      8192
 #define QUEUEBACKLOG     1024
 #define MAX_EPOLL_EVENTS 512
-#define MAX_CACHE_CONN   4096
+#define MAX_CACHE_CONN   128
+#define RES_BUF_SIZE     8192
+// #define CACHE_CONN
 
 namespace simple_http {
 
@@ -43,29 +45,23 @@ namespace simple_http {
     struct EventBase {
         int _fd;
         EventType _type;
-        char _eventBuffer[BUFFER_SIZE];
-        std::size_t _bytesInBuffer;
-        std::size_t bufferCap_;
 
-        EventBase() : _fd(-1), _type(EventType::UNINIT), _eventBuffer(), _bytesInBuffer(0), bufferCap_(0) {}
-        EventBase(int fd, EventType type) : _fd(fd), _type(type), _eventBuffer(), _bytesInBuffer(0), bufferCap_(BUFFER_SIZE) {
-            // _eventBuffer = (char *) malloc(BUFFER_SIZE);
+        EventBase() : _fd(-1), _type(EventType::UNINIT) {}
+        EventBase(int fd, EventType type) : _fd(fd), _type(type) {
         }
-        virtual ~EventBase() {
-            // if (_eventBuffer) {
-            //     free(_eventBuffer);
-            //     _eventBuffer = nullptr;
-            // }
-            // ::close(_fd); // this fd should be close in io thread
-        }
+        virtual ~EventBase() {}
+    };
+    struct PairEventData : public EventBase {
+        PairEventData(int fd) : EventBase(fd, EventType::PAIR_IO), _eventBuffer(), _bytesInBuffer(0), bufferCap_(sizeof(_eventBuffer)) {}
+        ~PairEventData() override = default;
 
         void resetBuffer() {
             memset(_eventBuffer, 0, bufferCap_);
         }
-    };
-    struct PairEventData : public EventBase {
-        PairEventData(int fd) : EventBase(fd, EventType::PAIR_IO) {}
-        ~PairEventData() override = default;
+
+        char _eventBuffer[128];
+        std::size_t _bytesInBuffer;
+        std::size_t bufferCap_;
     };
 
     struct ConnData : public EventBase {
@@ -75,7 +71,7 @@ namespace simple_http {
 
         ConnData() : EventBase(-1, EventType::CONN_IO), req(nullptr), res(nullptr), addr() {}
         ConnData(int fd) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse()), addr() {}
-        ConnData(int fd, AddrPair &&addr_) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse()), addr(addr_) {}
+        ConnData(int fd, AddrPair &&addr_) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse(RES_BUF_SIZE)), addr(addr_) {}
 
         ~ConnData() {
             cleanupReq();
@@ -83,7 +79,6 @@ namespace simple_http {
         }
 
         void resetData() {
-            resetBuffer();
             req->resetData();
             res->resetData();
         }
@@ -133,7 +128,7 @@ namespace simple_http {
             }
         }
 
-        void add_or_modify_fd(int clientFd, int eventType, int opt, EventBase *eventData) {
+        void add_or_modify_fd(int clientFd, int eventType, int opt, void *eventData) {
             assert(eventData);
             struct epoll_event event;
             event.data.fd = clientFd;
@@ -176,7 +171,7 @@ namespace simple_http {
         std::unique_ptr<EventBase> pairEventData_;
         int socketFd_;
         EpollHandle *handle_;
-        int pair_[2];
+        int pipes_[2];
     };
 
     class IOWorker {
@@ -198,7 +193,7 @@ namespace simple_http {
         std::unique_ptr<EpollHandle> handle_;
         SimpleServer *server_;
         std::unique_ptr<std::thread> th_;
-        int pair_[2];
+        int pipes_[2];
     };
 
     class SimpleServer {
@@ -215,9 +210,50 @@ namespace simple_http {
             SimpleServer *server;
         };
         using TaskPool = libs::NotifyQueueWorker<HandlerTask>;
+        struct Stat {
+            std::atomic<size_t> successReq{0};
+            std::atomic_int activeConn{0};
+            std::atomic_int failedReq{0};
+            std::atomic_int dropConn{0};
+            std::atomic_int closedConn{0};
+            std::atomic_int createdConn{0};
+
+            inline void incActiveConn() {
+                activeConn.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            inline void decActiveConn() {
+                activeConn.fetch_sub(1, std::memory_order_relaxed);
+            }
+
+            inline void incSuccessReq() {
+                successReq.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            inline void incFailedReq() {
+                failedReq.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            inline void incCreatedConn() {
+                createdConn.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            inline void incDropConn() {
+                dropConn.fetch_add(1, std::memory_order_relaxed);
+            }
+        };
+        struct StatVal {
+            size_t successReq{0};
+            int activeConn{0};
+            int failedReq{0};
+            int cacheConn{0};
+            int dropConn{0};
+            int closedConn{0};
+            int createdConn{0};
+        };
+        // should write a override function that auto assignment Stat --> StatVal
 
     public:
-        // SimpleServer() = default;
         SimpleServer(std::string address, unsigned int port, std::size_t poolSize = 1);
         ~SimpleServer();
 
@@ -226,7 +262,7 @@ namespace simple_http {
         bool isRunning() const;
         void addHandlers(const HandlersMap &handlers);
         void addHandlers(URLFormat path, HTTPMethod method, HandlerFunction fn);
-        int getActiveConnStat() const;
+        StatVal getStat() const;
 
     private:
         // void workerFn(HandlerTask &&task);
@@ -235,8 +271,8 @@ namespace simple_http {
         void addConnection(int i, int fd, AddrPair &&addr);
         ConnData *getOrCreateConn(int fd, AddrPair &&addr);
         bool pushCacheConn(ConnData *conn);
-        void incActiveConn();
-        void decActiveConn();
+
+    private:
         static void onExpectContinue(HTTPRequest *req, HTTPResponse *res);
         static void onDefaultGet(HTTPRequest *req, HTTPResponse *res);
 
@@ -254,10 +290,12 @@ namespace simple_http {
         EpollHandle accEpoll_;// for acceptor
         std::unique_ptr<Acceptor> acceptor_;
         std::vector<IOWorker *> ioWorkers_;
-        mutable std::mutex mtx_;    // for caching connections
-        std::condition_variable cv_;// notify when cached connection available
-        std::atomic_int activeConnCnt{0};
+#ifdef CACHE_CONN
         std::stack<ConnData *> cacheConn_;
+        mutable std::mutex cacheConnMtx_;// for caching connections
+        std::condition_variable cv_;     // notify when cached connection available
+#endif
+        Stat stat_;
     };
 
 }// namespace simple_http
