@@ -413,6 +413,7 @@ namespace simple_http {
         buffer_ = std::move(other.buffer_);
         memBody_ = std::move(other.memBody_);
         fileFd_ = other.fileFd_;
+        other.fileFd_ = -1;
         wrOff_ = other.wrOff_;
         _readType = other._readType;
         _finishWriteHeader = other._finishWriteHeader;
@@ -495,10 +496,10 @@ namespace simple_http {
     void HTTPResponse::write_file_body() {
         assert(fileFd_ > 0 && _readType == ReadType::FILE_READ);
         size_t len = 0;
-        if (_contentLength - _totalWrite <= buffer_->cap() - buffer_->size()) {
+        if (_contentLength - _totalWrite <= buffer_->wr_avail()) {
             len = _contentLength - _totalWrite;
         } else {
-            len = buffer_->cap() - buffer_->size();
+            len = buffer_->wr_avail();
         }
         libs::read(fileFd_, wrOff_, buffer_->wr_pos(), len);
         buffer_->incWrPos(len);

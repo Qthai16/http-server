@@ -50,8 +50,12 @@ namespace libs {
             if (data == nullptr || len == 0)
                 return 0;
             if (wrPos_ + len >= cap_) {
-                auto newsize = cap_ * 2;
+                auto newsize = (cap_ == 0) ? len : cap_ * 2;
+                if (newsize < wrPos_ + len)
+                    newsize = wrPos_ + len;
                 auto newbuf = (char *) realloc(buf_, newsize);
+                if (newbuf == nullptr)
+                    return 0;
                 buf_ = newbuf;
                 cap_ = newsize;
             }
@@ -107,6 +111,10 @@ namespace libs {
 
         size_t cap() const {
             return cap_;
+        }
+
+        size_t wr_avail() const {
+            return cap_ - wrPos_;
         }
 
         void resetBuf() {
