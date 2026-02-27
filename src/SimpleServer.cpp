@@ -262,17 +262,17 @@ namespace simple_http {
             assert(connPtr);
             auto fd = connPtr->_fd;
             auto httpReqPtr = connPtr->req;
-            auto recvBuf = connPtr->res->get_buf();
-            auto bytes = ::recv(fd, recvBuf->wr_pos(), recvBuf->cap(), 0);
+            auto recvBuf = httpReqPtr->get_buf();
+            if (recvBuf->wr_avail() == 0) {
+                // receive buffer full without completing headers — oversized request
+                cleanupEvent(connPtr);
+                server_->stat_.incFailedReq();
+                return;
+            }
+            auto bytes = ::recv(fd, recvBuf->wr_pos(), recvBuf->wr_avail(), 0);
             if (bytes > 0) {
                 recvBuf->incWrPos(bytes);
-                // connPtr->_bytesInBuffer = bytes;
-                auto parsedBytes = httpReqPtr->parse_request(recvBuf->rd_pos(), recvBuf->size());
-                recvBuf->incRdPos(parsedBytes);
-                if (recvBuf->empty()) {
-                    // parse whole data in buf, reset buf for next read
-                    recvBuf->resetBuf();
-                }
+                httpReqPtr->parse_request();
                 if (httpReqPtr->have_expect_continue()) {
                     printf("expect continue\n");
                     httpReqPtr->_expectContinue = false;

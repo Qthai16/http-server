@@ -10,9 +10,7 @@
 #include <streambuf>
 #include <memory>
 
-namespace libs {
-    class MemBuf;
-}
+#include "libs/MemBuffer.h"
 namespace simple_http {
     using HeadersMap = std::map<std::string, std::string>;
     using BufferType = libs::MemBuf;
@@ -163,8 +161,9 @@ namespace simple_http {
 
         void parse_query_params(const std::string &path);
         std::size_t parse_headers(const char *buffer, std::size_t bufsize);
-        std::size_t parse_request(char *buffer, std::size_t bytesCount);
-        // BufferType parse_request(MemBuf *membuf);
+        std::size_t parse_request();
+        libs::MemBuf* get_buf();
+        std::string body_str() const;
         // for debug and logging
         std::string to_string(std::ostream &os = std::cout);
         std::string to_json(std::ostream &os = std::cout);
@@ -174,7 +173,8 @@ namespace simple_http {
         HeadersMap _headers;
         HeadersMap _queryParams;
         std::string _path;
-        std::stringstream _body;
+        libs::MemBuf recv_buf_;
+        libs::MemBuf body_buf_;
         std::size_t _totalRead;
         std::size_t _contentLength;
         bool _expectContinue;

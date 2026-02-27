@@ -80,7 +80,7 @@ namespace libs {
             return buf_ + wrPos_;
         }
 
-        char* rd_pos() {
+        char* rd_pos() const {
             return buf_ + rdPos_;
         }
 

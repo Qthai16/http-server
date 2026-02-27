@@ -121,7 +121,7 @@ static void HandlePostForm(HTTPRequest *req, HTTPResponse *res) {
     if (!filename.empty()) {
         std::ofstream outputFile(libs::simple_format("post-file/{}-{}", filename, ++inc));
         if (outputFile.is_open()) {
-            outputFile << req->_body.str();
+            outputFile << req->body_str();
         }
     }
     std::string sendData = R"JSON({"results": "upload form successfully"})JSON";

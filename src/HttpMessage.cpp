@@ -194,7 +194,8 @@ namespace simple_http {
                                  _headers(),
                                  _queryParams(),
                                  _path(),
-                                 _body(),
+                                 recv_buf_(8192),
+                                 body_buf_(),
                                  _totalRead(0),
                                  _contentLength(0),
                                  _expectContinue(false),
@@ -248,9 +249,8 @@ namespace simple_http {
         _headers.clear();
         _queryParams.clear();
         _path.clear();
-        _body.seekg(0, std::ios_base::beg);
-        _body.seekp(0, std::ios_base::beg);
-        _body.clear();
+        recv_buf_.resetBuf();
+        body_buf_.resetBuf();
         _totalRead = 0;
         _contentLength = 0;
         _expectContinue = false;
@@ -334,24 +334,32 @@ namespace simple_http {
         return totalCnt;
     }
 
-    std::size_t HTTPRequest::parse_request(char *buffer, std::size_t bytesCount) {
-        std::streampos headerSize = 0;
-        auto oldVal = _finishParseHeaders;
+    libs::MemBuf* HTTPRequest::get_buf() {
+        return &recv_buf_;
+    }
+
+    std::string HTTPRequest::body_str() const {
+        if (body_buf_.size() == 0)
+            return {};
+        return std::string(body_buf_.rd_pos(), body_buf_.size());
+    }
+
+    std::size_t HTTPRequest::parse_request() {
         if (!_finishParseHeaders) {
-            headerSize = parse_headers(buffer, bytesCount);
-            assert(headerSize <= bytesCount);
+            auto headerSize = parse_headers(recv_buf_.rd_pos(), recv_buf_.size());
+            recv_buf_.incRdPos(headerSize);
             _totalRead += headerSize;
         }
         if (_finishParseHeaders) {
-            if (!oldVal && bytesCount > headerSize) {
-                // write remaining bytes to body
-                _body.write(buffer + headerSize, bytesCount - headerSize);
-                _totalRead += bytesCount - headerSize;
-            } else if (oldVal) {
-                _body.write(buffer, bytesCount);
-                _totalRead += bytesCount;
+            auto bodyBytes = recv_buf_.size();
+            if (bodyBytes > 0) {
+                body_buf_.write(recv_buf_.rd_pos(), bodyBytes);
+                recv_buf_.incRdPos(bodyBytes);
+                _totalRead += bodyBytes;
             }
         }
+        if (recv_buf_.empty())
+            recv_buf_.resetBuf();
         return _totalRead;
     }
 
