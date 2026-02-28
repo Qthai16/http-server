@@ -552,11 +552,11 @@ namespace simple_http {
 
     void SimpleServer::onExpectContinue(HTTPRequest *, HTTPResponse *res) {
         assert(res);
-        res->status_code(HTTPStatusCode::Continue);
+        res->http_code(CODE_100);
     }
 
     void SimpleServer::onDefaultGet(HTTPRequest *req, HTTPResponse *res) {
-        res->status_code(HTTPStatusCode::NotFound);
+        res->http_code(CODE_404);
         res->insert_header({"Content-Type", "application/json"});
         auto sendData = R"JSON({"errors": "resource not found"})JSON";
         res->str_body(sendData);

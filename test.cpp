@@ -64,7 +64,7 @@ static void SendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *res
     if (!fs::exists(path)) {
         // send 404 not found
         std::string sendData = R"JSON({"errors": "resource not found"})JSON";
-        response->status_code(HTTPStatusCode::NotFound);
+        response->http_code(CODE_404);
         response->str_body(sendData);
         response->insert_header({"Content-Type", "application/json"});
         return;
@@ -86,7 +86,7 @@ static void SendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *res
     } else {
         response->insert_header({"Content-Type", "application/octet-stream"});// default for others
     }
-    response->status_code(HTTPStatusCode::OK);
+    response->http_code(CODE_200);
     // std::stringstream ss;
     // ss << file.rdbuf();
     // response->str_body(ss.str());
@@ -126,7 +126,7 @@ static void HandlePostForm(HTTPRequest *req, HTTPResponse *res) {
     }
     std::string sendData = R"JSON({"results": "upload form successfully"})JSON";
     res->insert_header({"Content-Type", "application/json"});
-    res->status_code(HTTPStatusCode::OK);
+    res->http_code(CODE_200);
     res->str_body(sendData);
 }
 

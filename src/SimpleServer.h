@@ -70,7 +70,7 @@ namespace simple_http {
         AddrPair addr;
 
         ConnData() : EventBase(-1, EventType::CONN_IO), req(nullptr), res(nullptr), addr() {}
-        ConnData(int fd) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse()), addr() {}
+        ConnData(int fd) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse(RES_BUF_SIZE)), addr() {}
         ConnData(int fd, AddrPair &&addr_) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse(RES_BUF_SIZE)), addr(addr_) {}
 
         ~ConnData() {
@@ -104,7 +104,7 @@ namespace simple_http {
 
         void initResponse() {
             cleanupRes();
-            res = new HTTPResponse();
+            res = new HTTPResponse(RES_BUF_SIZE);
         }
 
         void initRequest() {

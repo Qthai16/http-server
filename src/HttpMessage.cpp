@@ -52,60 +52,34 @@ namespace simple_http {
         }
     }
 
-    std::string status_code_str(const HTTPStatusCode &code) {
+    std::string status_code_str(const HTTPCode &code) {
         switch (code) {
-            case HTTPStatusCode::Continue:
-                return "Continue";
-            case HTTPStatusCode::OK:
-                return "OK";
-            case HTTPStatusCode::Created:
-                return "Created";
-            case HTTPStatusCode::Accepted:
-                return "Accepted";
-            case HTTPStatusCode::NonAuthoritativeInformation:
-                return "NonAuthoritativeInformation";
-            case HTTPStatusCode::NoContent:
-                return "NoContent";
-            case HTTPStatusCode::ResetContent:
-                return "ResetContent";
-            case HTTPStatusCode::PartialContent:
-                return "PartialContent";
-            case HTTPStatusCode::MultipleChoices:
-                return "MultipleChoices";
-            case HTTPStatusCode::MovedPermanently:
-                return "MovedPermanently";
-            case HTTPStatusCode::Found:
-                return "Found";
-            case HTTPStatusCode::NotModified:
-                return "NotModified";
-            case HTTPStatusCode::BadRequest:
-                return "BadRequest";
-            case HTTPStatusCode::Unauthorized:
-                return "Unauthorized";
-            case HTTPStatusCode::Forbidden:
-                return "Forbidden";
-            case HTTPStatusCode::NotFound:
-                return "NotFound";
-            case HTTPStatusCode::MethodNotAllowed:
-                return "MethodNotAllowed";
-            case HTTPStatusCode::RequestTimeout:
-                return "RequestTimeout";
-            case HTTPStatusCode::ImATeapot:
-                return "ImATeapot";
-            case HTTPStatusCode::InternalServerError:
-                return "InternalServerError";
-            case HTTPStatusCode::NotImplemented:
-                return "NotImplemented";
-            case HTTPStatusCode::BadGateway:
-                return "BadGateway";
-            case HTTPStatusCode::ServiceUnvailable:
-                return "ServiceUnvailable";
-            case HTTPStatusCode::GatewayTimeout:
-                return "GatewayTimeout";
-            case HTTPStatusCode::HttpVersionNotSupported:
-                return "HttpVersionNotSupported";
-            default:
-                return "";
+            case CODE_100: return "Continue";
+            case CODE_200: return "OK";
+            case CODE_201: return "Created";
+            case CODE_202: return "Accepted";
+            case CODE_203: return "Non-Authoritative Information";
+            case CODE_204: return "No Content";
+            case CODE_205: return "Reset Content";
+            case CODE_206: return "Partial Content";
+            case CODE_300: return "Multiple Choices";
+            case CODE_301: return "Moved Permanently";
+            case CODE_302: return "Found";
+            case CODE_304: return "Not Modified";
+            case CODE_400: return "Bad Request";
+            case CODE_401: return "Unauthorized";
+            case CODE_403: return "Forbidden";
+            case CODE_404: return "Not Found";
+            case CODE_405: return "Method Not Allowed";
+            case CODE_408: return "Request Timeout";
+            case CODE_418: return "I'm a Teapot";
+            case CODE_500: return "Internal Server Error";
+            case CODE_501: return "Not Implemented";
+            case CODE_502: return "Bad Gateway";
+            case CODE_503: return "Service Unavailable";
+            case CODE_504: return "Gateway Timeout";
+            case CODE_505: return "HTTP Version Not Supported";
+            default:       return "";
         }
     }
 
@@ -117,7 +91,7 @@ namespace simple_http {
         os << version_str(ver);
         return os;
     }
-    std::ostream &operator<<(std::ostream &os, HTTPStatusCode code) {
+    std::ostream &operator<<(std::ostream &os, HTTPCode code) {
         os << status_code_str(code);
         return os;
     }
@@ -395,7 +369,7 @@ namespace simple_http {
 
     HTTPResponse::HTTPResponse(size_t bufsize)
         : _version(HTTPVersion::HTTP_1_1),
-          _statusCode(HTTPStatusCode::OK),
+          _httpCode(HTTPCode::CODE_200),
           _headers(),
           buffer_{nullptr},
           memBody_{},
@@ -408,7 +382,7 @@ namespace simple_http {
     }
 
     HTTPResponse::~HTTPResponse() {
-        if (fileFd_ > 0) {
+        if (fileFd_ >= 0) {
             ::close(fileFd_);
             fileFd_ = -1;
         }
@@ -416,7 +390,7 @@ namespace simple_http {
 
     HTTPResponse::HTTPResponse(HTTPResponse &&other) {
         _version = std::move(other._version);
-        _statusCode = std::move(other._statusCode);
+        _httpCode = std::move(other._httpCode);
         _headers = std::move(other._headers);
         buffer_ = std::move(other.buffer_);
         memBody_ = std::move(other.memBody_);
@@ -432,7 +406,7 @@ namespace simple_http {
     HTTPResponse& HTTPResponse::operator=(HTTPResponse &&other) {
         if (this == &other) return *this;
         _version = std::move(other._version);
-        _statusCode = std::move(other._statusCode);
+        _httpCode = std::move(other._httpCode);
         _headers = std::move(other._headers);
         buffer_ = std::move(other.buffer_);
         memBody_ = std::move(other.memBody_);
@@ -474,7 +448,7 @@ namespace simple_http {
 
     void HTTPResponse::write_header() {
         std::stringstream ss;
-        libs::simple_format(ss, "{} {} {}\r\n", _version, static_cast<int>(_statusCode), _statusCode);
+        libs::simple_format(ss, "{} {} {}\r\n", _version, static_cast<int>(_httpCode), _httpCode);
         if (_contentLength > 0)
             _headers["Content-Length"] = std::to_string(_contentLength);
         for (const auto &[key, value]: _headers) {
@@ -490,11 +464,13 @@ namespace simple_http {
         // todo: copy for now, use view ownership with readv/writev later
         assert(!memBody_.empty() && _readType == ReadType::IN_MEMORY_READ);
         size_t len = 0;
-        if (_contentLength - _totalWrite <= buffer_->cap() - buffer_->size()) {
+        if (_contentLength - _totalWrite <= buffer_->wr_avail()) {
             // remain data or whole response
+            // printf("write mem whole, %ld\n", _totalWrite);
             len = _contentLength - _totalWrite;
         } else {
-            len = buffer_->cap() - buffer_->size();
+            // printf("write mem partial, %ld\n", _totalWrite);
+            len = buffer_->wr_avail();
         }
         buffer_->write(memBody_.data() + wrOff_, len);
         wrOff_ += len;
@@ -502,11 +478,13 @@ namespace simple_http {
     }
 
     void HTTPResponse::write_file_body() {
-        assert(fileFd_ > 0 && _readType == ReadType::FILE_READ);
+        assert(fileFd_ >= 0 && _readType == ReadType::FILE_READ);
         size_t len = 0;
         if (_contentLength - _totalWrite <= buffer_->wr_avail()) {
+            // printf("write file whole, %ld\n", _totalWrite);
             len = _contentLength - _totalWrite;
         } else {
+            // printf("write file partial, %ld\n", _totalWrite);
             len = buffer_->wr_avail();
         }
         libs::read(fileFd_, wrOff_, buffer_->wr_pos(), len);
@@ -527,7 +505,7 @@ namespace simple_http {
                 wrOff_ = 0;
             } break;
             case ReadType::FILE_READ: {
-                if (fileFd_ > 0) {
+                if (fileFd_ >= 0) {
                     ::close(fileFd_);
                     fileFd_ = -1;
                 }
@@ -537,24 +515,21 @@ namespace simple_http {
                 break;
         }
         buffer_->resetBuf();
+        _httpCode = HTTPCode::CODE_100;
+        _version = HTTPVersion::HTTP_1_1;
         _readType = ReadType::UNINIT;
         _finishWriteHeader = false;
         _totalWrite = 0;
         _contentLength = 0;
     }
 
-    void HTTPResponse::status_code(HTTPStatusCode statusCode) {
-        _statusCode = statusCode;
-    }
-
     void HTTPResponse::http_code(HTTPCode httpCode) {
-        _statusCode = static_cast<HTTPStatusCode>(httpCode);
+        _httpCode = httpCode;
     }
 
     void HTTPResponse::str_body(const std::string &content) {
         if (expr_unlikely(content.empty())) return;
         _readType = ReadType::IN_MEMORY_READ;
-        memBody_.resize(content.size());
         memBody_ = content;
         _contentLength = memBody_.size();
     }

@@ -33,34 +33,6 @@ namespace simple_http {
         HTTP_2_0 = 20
     };
 
-    enum HTTPStatusCode {
-        Continue = 100,
-        OK = 200,
-        Created = 201,
-        Accepted = 202,
-        NonAuthoritativeInformation = 203,
-        NoContent = 204,
-        ResetContent = 205,
-        PartialContent = 206,
-        MultipleChoices = 300,
-        MovedPermanently = 301,
-        Found = 302,
-        NotModified = 304,
-        BadRequest = 400,
-        Unauthorized = 401,
-        Forbidden = 403,
-        NotFound = 404,
-        MethodNotAllowed = 405,
-        RequestTimeout = 408,
-        ImATeapot = 418,
-        InternalServerError = 500,
-        NotImplemented = 501,
-        BadGateway = 502,
-        ServiceUnvailable = 503,
-        GatewayTimeout = 504,
-        HttpVersionNotSupported = 505
-    };
-
     enum HTTPCode : uint16_t {
         CODE_100 = 100,
         CODE_200 = 200,
@@ -91,7 +63,7 @@ namespace simple_http {
 
     std::string method_str(const HTTPMethod &method);
     std::string version_str(const HTTPVersion &version);
-    std::string status_code_str(const HTTPStatusCode &code);
+    std::string status_code_str(const HTTPCode &code);
     std::pair<bool, HTTPVersion> str_to_http_version(const std::string &str);
     std::pair<bool, HTTPMethod> str_to_method(const std::string &str);
     std::string headers_get_field(const HeadersMap &headers, std::string key);
@@ -104,7 +76,7 @@ namespace simple_http {
             IN_MEMORY_READ = 1
         };
 
-        HTTPResponse(size_t bufsize = 8192);
+        HTTPResponse(size_t bufsize);
         ~HTTPResponse();
         HTTPResponse(const HTTPResponse &) = delete;
         const HTTPResponse &operator=(const HTTPResponse &other) = delete;
@@ -118,7 +90,6 @@ namespace simple_http {
         void resetData();
 
     public:// for handler
-        void status_code(HTTPStatusCode statusCode);
         void http_code(HTTPCode httpCode);
         void str_body(const std::string &content);
         void str_body(const char* buf, size_t size);
@@ -134,7 +105,7 @@ namespace simple_http {
     private:
         // static size_t inline maxBufferSize_ = (2 << 16) - 1;
         HTTPVersion _version;
-        HTTPStatusCode _statusCode;
+        HTTPCode _httpCode;
         HeadersMap _headers;
 
         std::shared_ptr<BufferType> buffer_;
