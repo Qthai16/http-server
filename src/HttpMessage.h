@@ -147,6 +147,7 @@ namespace simple_http {
         libs::MemBuf recv_buf_;
         libs::MemBuf body_buf_;
         std::size_t _totalRead;
+        std::size_t _headerSize;
         std::size_t _contentLength;
         bool _expectContinue;
         bool _finishParseHeaders;

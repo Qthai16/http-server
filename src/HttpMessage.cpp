@@ -171,6 +171,7 @@ namespace simple_http {
                                  recv_buf_(8192),
                                  body_buf_(),
                                  _totalRead(0),
+                                 _headerSize(0),
                                  _contentLength(0),
                                  _expectContinue(false),
                                  _finishParseHeaders(false) {}
@@ -183,7 +184,11 @@ namespace simple_http {
         auto lenStr = headers_get_field(_headers, "Content-Length");
         if (lenStr.empty())
             return 0;
-        return stoul(lenStr);
+        try {
+            return std::stoul(lenStr);
+        } catch (const std::exception &) {
+            return 0;
+        }
     }
 
     std::string HTTPRequest::content_filename() const {
@@ -212,7 +217,7 @@ namespace simple_http {
     }
 
     bool HTTPRequest::request_completed() const {
-        return _finishParseHeaders && (_totalRead >= _contentLength);
+        return _finishParseHeaders && (_totalRead - _headerSize >= _contentLength);
     }
 
     bool HTTPRequest::have_expect_continue() const {
@@ -226,6 +231,7 @@ namespace simple_http {
         recv_buf_.resetBuf();
         body_buf_.resetBuf();
         _totalRead = 0;
+        _headerSize = 0;
         _contentLength = 0;
         _expectContinue = false;
         _finishParseHeaders = false;
@@ -283,28 +289,32 @@ namespace simple_http {
         buffer += cnt;
         bufsize -= cnt;
         // remain are headers
+        bool foundTerminator = false;
         do {
             line.clear();
             cnt = getLine(buffer, bufsize, line);
             if (cnt == 0 || line.empty()) break;
-            if (!line.empty()) {
-                totalCnt += cnt;
-                buffer += cnt;
-                bufsize -= cnt;
-                // parse header
-                auto trimLine = libs::trim(line);
-                if (trimLine.empty())
-                    break;
-                auto delimPos = trimLine.find(':');
-                auto header = trimLine.substr(0, delimPos);
-                auto tmp = trimLine.substr(delimPos + 1);
-                auto value = libs::trim(tmp);
-                _headers[header] = value;
+            totalCnt += cnt;
+            buffer += cnt;
+            bufsize -= cnt;
+            // parse header
+            auto trimLine = libs::trim(line);
+            if (trimLine.empty()) {
+                foundTerminator = true;
+                break;
             }
+            auto delimPos = trimLine.find(':');
+            if (delimPos == std::string::npos) continue;
+            auto header = trimLine.substr(0, delimPos);
+            auto tmp = trimLine.substr(delimPos + 1);
+            auto value = libs::trim(tmp);
+            _headers[header] = value;
         } while (bufsize > 0);
-        _expectContinue = expect_100_continue();
-        _contentLength = content_length();
-        _finishParseHeaders = true;
+        if (foundTerminator) {
+            _expectContinue = expect_100_continue();
+            _contentLength = content_length();
+            _finishParseHeaders = true;
+        }
         return totalCnt;
     }
 
@@ -323,6 +333,8 @@ namespace simple_http {
             auto headerSize = parse_headers(recv_buf_.rd_pos(), recv_buf_.size());
             recv_buf_.incRdPos(headerSize);
             _totalRead += headerSize;
+            if (_finishParseHeaders)
+                _headerSize = _totalRead;
         }
         if (_finishParseHeaders) {
             auto bodyBytes = recv_buf_.size();
@@ -537,8 +549,7 @@ namespace simple_http {
     void HTTPResponse::str_body(const char *buf, size_t size) {
         if (expr_unlikely(size == 0)) return;
         _readType = ReadType::IN_MEMORY_READ;
-        memBody_.resize(size);
-        memcpy(&memBody_.at(0), buf, size);
+        memBody_.assign(buf, size);
         _contentLength = memBody_.size();
     }
 

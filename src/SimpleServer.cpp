@@ -17,7 +17,7 @@ using namespace std::chrono_literals;
 #include <chrono>
 class SimpleTimer {
 public:
-    SimpleTimer(const char *name) : begin_(std::chrono::steady_clock::now()), name_(name) {}
+    SimpleTimer(const char *name) : begin_(std::chrono::steady_clock::now()), name_(name), stop_(false) {}
     ~SimpleTimer() {
         if (!stop_)
             stop();
@@ -51,7 +51,7 @@ namespace simple_http {
         auto addr = server_->_address.c_str();
         auto port = server_->_port;
         struct ::sockaddr_in serv_addr;
-        memset(&serv_addr, '0', sizeof(serv_addr));
+        memset(&serv_addr, 0, sizeof(serv_addr));
         serv_addr.sin_family = AF_INET;
         serv_addr.sin_addr.s_addr = INADDR_ANY;
         ::inet_pton(AF_INET, addr, &(serv_addr.sin_addr.s_addr));
@@ -298,14 +298,17 @@ namespace simple_http {
                             handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
                         } else {
                             // method not supported or default handler for method not found
-                            // todo: handle this case
+                            httpResPtr->http_code(CODE_405);
+                            httpResPtr->insert_header({"Content-Type", "application/json"});
+                            httpResPtr->str_body(R"JSON({"errors": "method not allowed"})JSON");
+                            handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
                         }
                     }
                 }
             } else if ((bytes < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 // no data available, try again
                 printf("handleRead: retry\n");
-                connPtr->resetData();
+                // connPtr->resetData(); // do not reset, just wait for next data on read event
                 handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
             } else {
                 // bytes = 0 (connection close by client) and other errors
@@ -347,7 +350,7 @@ namespace simple_http {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {// retry
                 // todo: add to metrics (retry)
                 printf("handleWrite: retry\n");
-                handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_ADD, connPtr);
+                handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
             } else {
                 cleanupEvent(connPtr);
             }
@@ -464,7 +467,7 @@ namespace simple_http {
             port = ((struct sockaddr_in6 *) sa)->sin6_port;
         }
         ::inet_ntop(sa->sa_family, host, s, sizeof(s));
-        return {std::string(s, sizeof(s)), port};
+        return {std::string(s), port};
     }
 
     std::pair<bool, SimpleServer::HandlerFunction> SimpleServer::getHandler(HTTPMethod method, const std::string &path) {
