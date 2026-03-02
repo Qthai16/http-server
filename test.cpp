@@ -26,16 +26,16 @@ namespace fs = std::filesystem;
 namespace fs = std::experimental::filesystem;
 #endif
 
-#include "src/HttpMessage.h"
+#include "libs/http/HttpMessage.h"
 #ifdef USE_OPENSSL
-#include "src/SSLUtils.h"
+#include "libs/SSLUtils.h"
 #endif
-#include "src/SimpleServer.h"
+#include "libs/http/SimpleServer.h"
 
 #include "libs/StrUtils.h"
 
 using namespace std::placeholders;
-using namespace simple_http;
+using namespace libs::http;
 using namespace std::string_literals;
 // using std::cout, std::endl;
 // using std::string, std::map, std::tuple;
@@ -81,8 +81,8 @@ static void SendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *res
     // file.close();// close here bc HTTPResponse will open this file
 
     auto extension = fs::path(path).extension().string();
-    if (simple_http::_mimeTypes.count(extension)) {
-        response->insert_header({"Content-Type", simple_http::_mimeTypes.at(extension)});
+    if (libs::http::_mimeTypes.count(extension)) {
+        response->insert_header({"Content-Type", libs::http::_mimeTypes.at(extension)});
     } else {
         response->insert_header({"Content-Type", "application/octet-stream"});// default for others
     }

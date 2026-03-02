@@ -34,7 +34,7 @@ private:
     bool stop_;
 };
 
-namespace simple_http {
+namespace libs::http {
     std::map<std::string, std::string> _mimeTypes = {
             {".js", "text/javascript"},
             {".txt", "text/plain"},
@@ -109,18 +109,12 @@ namespace simple_http {
                             int errno_copy = errno;
                             if (errno_copy == EAGAIN || errno_copy == EWOULDBLOCK) {
                                 goto stop_accept;
-                                // break;// no more connections
                             } else {
-                                // printf("Acceptor::start() accept() errno: %s\n", strerror(errno_copy));
-                                // perror("accept failed");
-                                // server_->stat_.incDropConn();
                                 goto stop_accept;
-                                // break;
                             }
                         }
 
                         auto addrPair = server_->addrParse((struct sockaddr *) &connAddr);
-                        // printf("New connection: %s:%d\n", addrPair.first.c_str(), addrPair.second);
                         server_->stat_.incActiveConn();
                         server_->addConnection(ind++, clientfd, std::move(addrPair));
                         if (ind >= workerSize) ind = 0;
@@ -152,9 +146,6 @@ namespace simple_http {
     }
 
     Acceptor::~Acceptor() {
-        // stop();
-        // todo: stat for drop connection due to too many open files
-        // todo: wrong active conns metric due to conn dropped
         if (th_) {
             th_->join();
             th_.reset();
@@ -220,10 +211,8 @@ namespace simple_http {
                         } else if (eventTypes & EPOLLIN) {
                             auto pairEvent = reinterpret_cast<PairEventData *>(handle_->events[i].data.ptr);
                             pairEvent->_bytesInBuffer = ::read(fd, pairEvent->_eventBuffer, 1);
-                            // assert(event->_bytesInBuffer == 1);
                             delete event;
                             event = nullptr;
-                            // printf("iothread interrupted\n");
                             return;
                         } else if (eventTypes & EPOLLOUT) {
                             printf("unhandled pair epoll out\n");
@@ -235,11 +224,9 @@ namespace simple_http {
                     } break;
                     case EventType::CONN_IO: {
                         auto reqEventData = (ConnData *) event;
-                        if (eventTypes & (EPOLLHUP | EPOLLERR)) {// errors or event is not handled
-                            // printf("connection close: %d\n", eventTypes);
+                        if (eventTypes & (EPOLLHUP | EPOLLERR)) {
                             cleanupEvent(reqEventData);
                         } else if (eventTypes & EPOLLIN) {
-                            // todo: add total request metrics
                             handleRead(reqEventData);
                         } else if (eventTypes & EPOLLOUT) {
                             handleWrite(reqEventData);
@@ -253,7 +240,6 @@ namespace simple_http {
                         assert(0);
                 }
             }
-            // todo: process the remain requests
         }
     }
 
@@ -264,7 +250,6 @@ namespace simple_http {
             auto httpReqPtr = connPtr->req;
             auto recvBuf = httpReqPtr->get_buf();
             if (recvBuf->wr_avail() == 0) {
-                // receive buffer full without completing headers — oversized request
                 cleanupEvent(connPtr);
                 server_->stat_.incFailedReq();
                 return;
@@ -279,25 +264,21 @@ namespace simple_http {
                     auto tmpEvent = std::make_unique<ConnData>(fd);
                     server_->onExpectContinue(tmpEvent->req, tmpEvent->res);
                     tmpEvent->res->write_reponse();
-                    // tmpEvent->_bytesInBuffer = tmpEvent->res->serialize_reponse(tmpEvent->_eventBuffer, tmpEvent->bufferCap_);
-                    // send here in order to not mess up with handleWrite state
                     ::send(fd, tmpEvent->res->get_buf()->rd_pos(), tmpEvent->res->get_buf()->size(), MSG_NOSIGNAL);
                 }
-                if (!httpReqPtr->request_completed()) {// still have bytes to read
+                if (!httpReqPtr->request_completed()) {
                     handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
-                } else {// read done
+                } else {
                     auto httpResPtr = connPtr->res;
-                    // connPtr->resetBuffer();
                     auto pair = server_->getHandler(httpReqPtr->_method, httpReqPtr->_path);
                     if (pair.first) {
-                        pair.second(httpReqPtr, httpResPtr);// call registered handler
+                        pair.second(httpReqPtr, httpResPtr);
                         handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
                     } else {
-                        if (server_->defaultHandlers_.count(httpReqPtr->_method)) {// not registered path
+                        if (server_->defaultHandlers_.count(httpReqPtr->_method)) {
                             server_->defaultHandlers_.at(httpReqPtr->_method)(httpReqPtr, httpResPtr);
                             handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
                         } else {
-                            // method not supported or default handler for method not found
                             httpResPtr->http_code(CODE_405);
                             httpResPtr->insert_header({"Content-Type", "application/json"});
                             httpResPtr->str_body(R"JSON({"errors": "method not allowed"})JSON");
@@ -306,16 +287,12 @@ namespace simple_http {
                     }
                 }
             } else if ((bytes < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                // no data available, try again
                 printf("handleRead: retry\n");
-                // connPtr->resetData(); // do not reset, just wait for next data on read event
                 handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
             } else {
-                // bytes = 0 (connection close by client) and other errors
                 cleanupEvent(connPtr);
             }
         } catch (const std::exception &e) {
-            // fprintf(stderr, "IOWorker::handleRead exception: %s\n", e.what());
             cleanupEvent(connPtr);
             server_->stat_.incFailedReq();
             return;
@@ -335,20 +312,18 @@ namespace simple_http {
         auto sendBytes = ::send(fd, sendbuf->rd_pos(), sendbuf->size(), MSG_NOSIGNAL);
         if (sendBytes >= 0) {
             sendbuf->incRdPos(sendBytes);
-            if (sendbuf->empty()) {// all data is sent, reset buf for next write_response
+            if (sendbuf->empty()) {
                 sendbuf->resetBuf();
             }
-            if (!connPtr->res->write_done()) {// still have bytes to send
+            if (!connPtr->res->write_done()) {
                 handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
             } else {
-                // cleanupEvent(connPtr);
                 connPtr->resetData();
                 handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
                 server_->stat_.incSuccessReq();
             }
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {// retry
-                // todo: add to metrics (retry)
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 printf("handleWrite: retry\n");
                 handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
             } else {
@@ -362,7 +337,6 @@ namespace simple_http {
         handle_->delete_fd(event->_fd);
         ::close(event->_fd);
         if (connData) {
-            // printf("cleanup conn: %s:%d\n", connData->addr.first.c_str(), connData->addr.second);
             server_->stat_.decActiveConn();
             server_->pushCacheConn(connData);
             return;
@@ -472,7 +446,6 @@ namespace simple_http {
 
     std::pair<bool, SimpleServer::HandlerFunction> SimpleServer::getHandler(HTTPMethod method, const std::string &path) {
         // exact match first
-        // todo: getHandler are called by multiple io thread without mutex
         std::pair<bool, SimpleServer::HandlerFunction> ret;
         ret.first = false;
         auto iter = handlers_.find(path);
@@ -481,7 +454,6 @@ namespace simple_http {
             ret.second = iter->second.second;
             return ret;
         }
-        // todo: move to regex handler
         // try regex match
         for (const auto &ele: handlers_) {
             auto pathRegex = std::regex(ele.first);// todo: this regex should be pre-built
@@ -564,4 +536,4 @@ namespace simple_http {
         auto sendData = R"JSON({"errors": "resource not found"})JSON";
         res->str_body(sendData);
     }
-};// namespace simple_http
+}// namespace libs::http

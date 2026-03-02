@@ -53,14 +53,15 @@ endif()
 set(SRC_FILES
     ${SRC_FILES}
     json11/json11.cpp
-    src/HttpMessage.cpp
-    src/SimpleServer.cpp
 )
 
 set(LINK_LIBS
     ${LINK_LIBS}
     pthread
 )
+
+# build the http dummy library
+add_subdirectory(libs/http)
 
 add_executable(http-server
     test.cpp
@@ -87,6 +88,7 @@ target_include_directories(http-server PRIVATE
     ${LIB_INCLUDE_DIRS}
 )
 target_link_libraries(http-server PRIVATE
+    libs::dummy
     ${LINK_LIBS}
     $<$<CONFIG:Debug>:-fsanitize=address>
 )
@@ -161,41 +163,5 @@ if (BUILD_EXP)
     )
 endif()
 
-# add_library(abclib
-#     ${SRC_FILES}
-#     src/HttpMessage.cpp
-#     src/SimpleServer.cpp
-# )
-
-# install(TARGETS abclib
-#         EXPORT abclibTargets
-#         ARCHIVE DESTINATION lib
-#         LIBRARY DESTINATION lib
-#         RUNTIME DESTINATION bin)
-
-# install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/inc/
-#     DESTINATION include/abclib
-#     FILES_MATCHING PATTERN "*.h"
-# )
-
-# # Export the targets to a script
-# install(EXPORT abclibTargets
-#         FILE abclibTargets.cmake
-#         NAMESPACE abclib::
-#         DESTINATION lib/cmake/abclib
-# )
-
-# # Create and install the package configuration file
-# include(CMakePackageConfigHelpers)
-# write_basic_package_version_file(
-#         "${CMAKE_CURRENT_BINARY_DIR}/abclibConfigVersion.cmake"
-#         VERSION ${PROJECT_VERSION}
-#         COMPATIBILITY AnyNewerVersion
-# )
-
-# configure_file(abclibConfig.cmake.in abclibConfig.cmake @ONLY)
-# install(FILES
-#         "${CMAKE_CURRENT_BINARY_DIR}/abclibConfig.cmake"
-#         "${CMAKE_CURRENT_BINARY_DIR}/abclibConfigVersion.cmake" 
-#         DESTINATION lib/cmake/abclib
-# )
+# HTTP server + message types are provided by libs/http (libdummy).
+# See libs/http/CMakeLists.txt for the shared-library build and install rules.

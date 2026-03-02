@@ -10,7 +10,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-namespace simple_http {
+namespace libs::http {
 
     // std::initializer_list<std::string> requiredHeaders = {"Content-Type", "Content-Length", "Connection"};
 
@@ -163,12 +163,12 @@ namespace simple_http {
         return "";
     }
 
-    HTTPRequest::HTTPRequest() : _version(HTTPVersion::HTTP_1_1),
+    HTTPRequest::HTTPRequest(size_t bufSize) : _version(HTTPVersion::HTTP_1_1),
                                  _method(HTTPMethod::GET),
                                  _headers(),
                                  _queryParams(),
                                  _path(),
-                                 recv_buf_(8192),
+                                 recv_buf_(bufSize),
                                  body_buf_(),
                                  _totalRead(0),
                                  _headerSize(0),
@@ -354,9 +354,6 @@ namespace simple_http {
         libs::simple_format(os, "version: {}, method: {}, path: {}\r\n", _version, _method, _path);
         libs::simple_format(os, "headers: \n  {}\r\n", _headers);
         libs::simple_format(os, "query params: \n  {}\r\n", _queryParams);
-        // std::string body = _body.str();
-        // std::cout << "BODY: " << std::endl;
-        // std::cout << body << std::endl;
         return {};// change to void?
     }
 
@@ -477,11 +474,8 @@ namespace simple_http {
         assert(!memBody_.empty() && _readType == ReadType::IN_MEMORY_READ);
         size_t len = 0;
         if (_contentLength - _totalWrite <= buffer_->wr_avail()) {
-            // remain data or whole response
-            // printf("write mem whole, %ld\n", _totalWrite);
             len = _contentLength - _totalWrite;
         } else {
-            // printf("write mem partial, %ld\n", _totalWrite);
             len = buffer_->wr_avail();
         }
         buffer_->write(memBody_.data() + wrOff_, len);
@@ -493,10 +487,8 @@ namespace simple_http {
         assert(fileFd_ >= 0 && _readType == ReadType::FILE_READ);
         size_t len = 0;
         if (_contentLength - _totalWrite <= buffer_->wr_avail()) {
-            // printf("write file whole, %ld\n", _totalWrite);
             len = _contentLength - _totalWrite;
         } else {
-            // printf("write file partial, %ld\n", _totalWrite);
             len = buffer_->wr_avail();
         }
         libs::read(fileFd_, wrOff_, buffer_->wr_pos(), len);
@@ -565,11 +557,10 @@ namespace simple_http {
         if (::fstat(fileFd_, &st) != 0)
             throw std::runtime_error("stat failed");
         _contentLength = st.st_size;
-        // _contentLength = libs::file_size(path.c_str());
     }
 
     void HTTPResponse::insert_header(std::pair<std::string, std::string> val) {
         _headers.insert(val);
     }
 
-}// namespace simple_http
+}// namespace libs::http

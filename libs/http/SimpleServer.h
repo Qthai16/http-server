@@ -29,10 +29,10 @@
 #define QUEUEBACKLOG     1024
 #define MAX_EPOLL_EVENTS 512
 #define MAX_CACHE_CONN   128
-#define RES_BUF_SIZE     8192
-// #define CACHE_CONN
+// #define RES_BUF_SIZE     8192
+#define CACHE_CONN
 
-namespace simple_http {
+namespace libs::http {
 
     extern std::map<std::string, std::string> _mimeTypes;
     enum class EventType {
@@ -70,8 +70,8 @@ namespace simple_http {
         AddrPair addr;
 
         ConnData() : EventBase(-1, EventType::CONN_IO), req(nullptr), res(nullptr), addr() {}
-        ConnData(int fd) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse(RES_BUF_SIZE)), addr() {}
-        ConnData(int fd, AddrPair &&addr_) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest()), res(new HTTPResponse(RES_BUF_SIZE)), addr(addr_) {}
+        ConnData(int fd) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest(BUFFER_SIZE)), res(new HTTPResponse(BUFFER_SIZE)), addr() {}
+        ConnData(int fd, AddrPair &&addr_) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest(BUFFER_SIZE)), res(new HTTPResponse(BUFFER_SIZE)), addr(addr_) {}
 
         ~ConnData() {
             cleanupReq();
@@ -104,12 +104,12 @@ namespace simple_http {
 
         void initResponse() {
             cleanupRes();
-            res = new HTTPResponse(RES_BUF_SIZE);
+            res = new HTTPResponse(BUFFER_SIZE);
         }
 
         void initRequest() {
             cleanupReq();
-            req = new HTTPRequest();
+            req = new HTTPRequest(BUFFER_SIZE);
         }
     };
     // using EventHandler = std::function<void(ConnData *)>;
@@ -298,4 +298,4 @@ namespace simple_http {
         Stat stat_;
     };
 
-}// namespace simple_http
+}// namespace libs::http

@@ -11,7 +11,7 @@
 #include <memory>
 
 #include "libs/MemBuffer.h"
-namespace simple_http {
+namespace libs::http {
     using HeadersMap = std::map<std::string, std::string>;
     using BufferType = libs::MemBuf;
 
@@ -119,7 +119,7 @@ namespace simple_http {
     };
 
     struct HTTPRequest {
-        HTTPRequest();
+        HTTPRequest(size_t bufSize);
         ~HTTPRequest() = default;
 
         std::string get_header(const std::string &key) const;
@@ -153,4 +153,4 @@ namespace simple_http {
         bool _finishParseHeaders;
     };
 
-}// namespace simple_http
+}// namespace libs::http
