@@ -59,26 +59,22 @@ struct Opts {
     int workerSize;
 };
 
-static void SendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *response) {
-    // response->insert_header({"Connection", "keep-alive"});
-    if (!fs::exists(path)) {
-        // send 404 not found
-        std::string sendData = R"JSON({"errors": "resource not found"})JSON";
-        response->http_code(CODE_404);
-        response->str_body(sendData);
-        response->insert_header({"Content-Type", "application/json"});
-        return;
-    }
-    // std::ifstream file(path);
-    // if (!file.is_open()) {
-    //     // send internal error
-    //     std::string sendData = R"JSON({"errors": "failed to open file"})JSON";
-    //     response->status_code(HTTPStatusCode::InternalServerError);
+void onResourceNotFound(HTTPRequest *req, HTTPResponse *res) {
+    res->http_code(CODE_404);
+    res->insert_header({"Content-Type", "application/json"});
+    auto sendData = R"JSON({"errors": "Not Found"})JSON";
+    res->str_body(sendData);
+}
+
+static void sendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *response) {
+    // if (!fs::exists(path)) {
+    //     // send 404 not found
+    //     std::string sendData = R"JSON({"errors": "resource not found"})JSON";
+    //     response->http_code(CODE_404);
     //     response->str_body(sendData);
     //     response->insert_header({"Content-Type", "application/json"});
     //     return;
     // }
-    // file.close();// close here bc HTTPResponse will open this file
 
     auto extension = fs::path(path).extension().string();
     if (libs::http::_mimeTypes.count(extension)) {
@@ -94,11 +90,11 @@ static void SendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *res
     // todo: leaked mem due to connection not being clean up (tested by chrome)
 }
 
-static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
-    SimpleServer::HandlersMap handlersMap;
+std::vector<std::tuple<HTTPMethod, SimpleServer::URLFormat, SimpleServer::HandlerFunction>> buildStaticAssets(std::string rootPath) {
     if (!fs::exists(rootPath) || !fs::is_directory(rootPath)) {
-        return handlersMap;
+        return {};
     }
+    std::vector<std::tuple<HTTPMethod, SimpleServer::URLFormat, SimpleServer::HandlerFunction>> ret;
     for (auto &entry: fs::recursive_directory_iterator(rootPath)) {
         if (!fs::is_regular_file(entry.path()))
             continue;
@@ -109,9 +105,11 @@ static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
         // std::cout << "filename: " << filePath.filename().string() << ", extension: " << filePath.extension().string() << std::endl;
         if (urlPath == "/index.html")
             urlPath = "/";
-        handlersMap[urlPath] = {HTTPMethod::GET, std::bind(&SendStaticFile, absolutePath, _1, _2)};
+        ret.emplace_back(HTTPMethod::GET, urlPath, [path = absolutePath](auto *req, auto *res) {
+            sendStaticFile(path, req, res);
+        });
     }
-    return handlersMap;
+    return ret;
 }
 
 static void HandlePostForm(HTTPRequest *req, HTTPResponse *res) {
@@ -180,16 +178,15 @@ int main(int argc, const char *argv[]) {
 #endif
     auto opts = parseOpts(argc, argv);
     server_.reset(new SimpleServer(opts.addr, opts.port, opts.workerSize));
+    server_->setDefaultHandler(HTTPMethod::GET, onResourceNotFound);
     server_->addHandlers({
-            {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
-            // {"/[a-zA-z0-9_-].+", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
-            {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2)}},
-            {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2)}},
-            {"/file", {HTTPMethod::POST, &HandlePostForm}},
-            {"/stat", {HTTPMethod::GET, &HandleGetStat}},
+            {HTTPMethod::GET, "/", [](auto *req, auto *res) { sendStaticFile("static/index.html", req, res); }},
+            // {HTTPMethod::GET, "/styles.css", [](auto *req, auto *res) { sendStaticFile("static/styles.css", req, res); }},
+            // {HTTPMethod::GET, "^/(simple)?test$", [](auto *req, auto *res) { sendStaticFile("static/index-backup.html", req, res); }},
+            {HTTPMethod::POST, "/file", &HandlePostForm},
+            {HTTPMethod::GET, "/stat", &HandleGetStat},
     });
-    auto staticResMap = ServeStaticResources("static");
-    server_->addHandlers(staticResMap);
+    server_->addHandlers(buildStaticAssets("static"));
     server_->start();
     signal(SIGTERM, signalHandler);
     signal(SIGINT, signalHandler);

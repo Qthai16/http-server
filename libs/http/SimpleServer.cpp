@@ -74,27 +74,32 @@ namespace libs::http {
 
         if (::listen(socketFd_, QUEUEBACKLOG) < 0)
             throw std::runtime_error("Failed to listen socket");
-        sockEventData_.reset(new EventBase(socketFd_, EventType::ACCEPTOR));
-        pairEventData_.reset(new PairEventData(pipes_[0]));
-        handle_->add_or_modify_fd(socketFd_, EPOLLIN, EPOLL_CTL_ADD, sockEventData_.get());
-        handle_->add_or_modify_fd(pipes_[0], EPOLLIN, EPOLL_CTL_ADD, pairEventData_.get());
+
+        handle_.init();
     }
 
     void Acceptor::eventLoop() {
+        std::unique_ptr<EventBase> sockEventData;
+        std::unique_ptr<EventBase> pairEventData;
+        sockEventData.reset(new EventBase(socketFd_, EventType::ACCEPTOR));
+        pairEventData.reset(new PairEventData(pipes_[0]));
+        handle_.add_or_modify_fd(socketFd_, EPOLLIN, EPOLL_CTL_ADD, sockEventData.get());
+        handle_.add_or_modify_fd(pipes_[0], EPOLLIN, EPOLL_CTL_ADD, pairEventData.get());
+
         auto ind = 0;// round robin
         auto workerSize = server_->ioWorkers_.size();
         while (server_->isRunning()) {
-            auto nfds = ::epoll_wait(handle_->_epollFd, handle_->events, MAX_EPOLL_EVENTS, -1);// wait forever
+            auto nfds = ::epoll_wait(handle_._epollFd, handle_.events, MAX_EPOLL_EVENTS, -1);// wait forever
             if (nfds <= 0)
                 continue;
             for (auto i = 0; i < nfds; i++) {
-                auto event = reinterpret_cast<EventBase *>(handle_->events[i].data.ptr);
-                auto eventTypes = handle_->events[i].events;
+                auto event = reinterpret_cast<EventBase *>(handle_.events[i].data.ptr);
+                auto eventTypes = handle_.events[i].events;
                 auto fd = event->_fd;
                 switch (event->_type) {
                     case EventType::PAIR_IO: {
                         if (eventTypes & EPOLLIN) {
-                            auto pairEvent = reinterpret_cast<PairEventData *>(handle_->events[i].data.ptr);
+                            auto pairEvent = reinterpret_cast<PairEventData *>(handle_.events[i].data.ptr);
                             pairEvent->_bytesInBuffer = ::read(fd, pairEvent->_eventBuffer, 1);
                             assert(pairEvent->_bytesInBuffer == 1);
                             return;
@@ -171,12 +176,11 @@ namespace libs::http {
         auto rv = ::pipe(pipes_);
         if (rv != 0)
             throw std::runtime_error("pipe failed");
-        handle_.reset(new EpollHandle());
-        handle_->init();
+        handle_.init();
         th_ = std::make_unique<std::thread>([this, id]() {
             std::unique_ptr<PairEventData> stopEvent;
             stopEvent.reset(new PairEventData(pipes_[0]));
-            handle_->add_or_modify_fd(pipes_[0], EPOLLIN, EPOLL_CTL_ADD, stopEvent.get());
+            handle_.add_or_modify_fd(pipes_[0], EPOLLIN, EPOLL_CTL_ADD, stopEvent.get());
             printf("IOWorker[%d] started\n", id);
             eventLoop();
             printf("IOWorker[%d] stopped\n", id);
@@ -192,28 +196,26 @@ namespace libs::http {
 
     void IOWorker::addConn(int fd, AddrPair &&addr) {
         auto eventData = server_->getOrCreateConn(fd, std::move(addr));
-        handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, eventData);// leveled triggered
+        handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, eventData);// leveled triggered
     }
 
     void IOWorker::eventLoop() {
         while (server_->isRunning()) {
-            auto nfds = ::epoll_wait(handle_->_epollFd, handle_->events, MAX_EPOLL_EVENTS, -1);// wait forever
+            auto nfds = ::epoll_wait(handle_._epollFd, handle_.events, MAX_EPOLL_EVENTS, -1);// wait forever
             if (nfds <= 0) {
                 continue;
             }
             for (auto i = 0; i < nfds; i++) {
-                auto event = reinterpret_cast<EventBase *>(handle_->events[i].data.ptr);
+                auto event = reinterpret_cast<EventBase *>(handle_.events[i].data.ptr);
                 auto fd = event->_fd;
-                auto eventTypes = handle_->events[i].events;
+                auto eventTypes = handle_.events[i].events;
                 switch (event->_type) {
                     case EventType::PAIR_IO: {
                         if (eventTypes & (EPOLLHUP | EPOLLERR)) {
                             cleanupEvent(event);
                         } else if (eventTypes & EPOLLIN) {
-                            auto pairEvent = reinterpret_cast<PairEventData *>(handle_->events[i].data.ptr);
+                            auto pairEvent = reinterpret_cast<PairEventData *>(handle_.events[i].data.ptr);
                             pairEvent->_bytesInBuffer = ::read(fd, pairEvent->_eventBuffer, 1);
-                            // delete event;
-                            // event = nullptr;
                             return;
                         } else if (eventTypes & EPOLLOUT) {
                             printf("unhandled pair epoll out\n");
@@ -268,28 +270,27 @@ namespace libs::http {
                     ::send(fd, tmpEvent->res->get_buf()->rd_pos(), tmpEvent->res->get_buf()->size(), MSG_NOSIGNAL);
                 }
                 if (!httpReqPtr->request_completed()) {
-                    handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
-                } else {
+                    handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
+                } else { // todo: move this handler calling to worker thread
                     auto httpResPtr = connPtr->res;
-                    auto pair = server_->getHandler(httpReqPtr->_method, httpReqPtr->_path);
-                    if (pair.first) {
-                        pair.second(httpReqPtr, httpResPtr);
-                        handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
+                    auto handler = server_->getHandler(httpReqPtr->_method, httpReqPtr->_path);
+                    if (handler) {
+                        // registered handler
+                        handler(httpReqPtr, httpResPtr);
+                    } else if (auto iter = server_->defaultHandlers_.find(httpReqPtr->_method); iter != server_->defaultHandlers_.end()) {
+                        // method default handler
+                        iter->second(httpReqPtr, httpResPtr);
                     } else {
-                        if (server_->defaultHandlers_.count(httpReqPtr->_method)) {
-                            server_->defaultHandlers_.at(httpReqPtr->_method)(httpReqPtr, httpResPtr);
-                            handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
-                        } else {
-                            httpResPtr->http_code(CODE_405);
-                            httpResPtr->insert_header({"Content-Type", "application/json"});
-                            httpResPtr->str_body(R"JSON({"errors": "method not allowed"})JSON");
-                            handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
-                        }
+                        // method not allowed
+                        httpResPtr->http_code(CODE_405);
+                        httpResPtr->insert_header({"Content-Type", "application/json"});
+                        httpResPtr->str_body(R"JSON({"errors": "method not allowed"})JSON");
                     }
+                    handle_.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
                 }
             } else if ((bytes < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 printf("handleRead: retry\n");
-                handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
+                handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
             } else {
                 cleanupEvent(connPtr);
             }
@@ -317,16 +318,16 @@ namespace libs::http {
                 sendbuf->resetBuf();
             }
             if (!connPtr->res->write_done()) {
-                handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
+                handle_.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
             } else {
                 connPtr->resetData();
-                handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
+                handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
                 server_->stat_.incSuccessReq();
             }
         } else {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 printf("handleWrite: retry\n");
-                handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
+                handle_.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
             } else {
                 cleanupEvent(connPtr);
             }
@@ -335,7 +336,7 @@ namespace libs::http {
 
     void IOWorker::cleanupEvent(EventBase *event) {
         auto connData = dynamic_cast<ConnData *>(event);
-        handle_->delete_fd(event->_fd);
+        handle_.delete_fd(event->_fd);
         ::close(event->_fd);
         if (connData) {
             server_->stat_.decActiveConn();
@@ -358,7 +359,6 @@ namespace libs::http {
                                                                                                _stop(false),
                                                                                                acceptor_(nullptr),
                                                                                                ioWorkers_() {
-        defaultHandlers_[HTTPMethod::GET] = &SimpleServer::onDefaultGet;
     }
 
     void SimpleServer::start() {
@@ -366,13 +366,14 @@ namespace libs::http {
         for (auto i = 0; i < _poolSize; i++) {
             ioWorkers_[i] = new IOWorker(this);
         }
-        accEpoll_.init();
-        acceptor_.reset(new Acceptor(this, &accEpoll_));
+        // start acceptor
+        acceptor_.reset(new Acceptor(this));
         acceptor_->start();
-
+        // start io workers
         for (auto &w: ioWorkers_) {
             w->start();
         }
+        // todo: condition variable to wait until all workers and acceptor are ready
         printf("Simple server start listening on %s:%d\n", _address.c_str(), _port);
     }
 
@@ -400,13 +401,24 @@ namespace libs::http {
         return !_stop.load(std::memory_order_acquire);
     }
 
-    void SimpleServer::addHandlers(const HandlersMap &handlers) {
-        for (const auto &ele: handlers) {
-            handlers_[ele.first] = ele.second;
+    void SimpleServer::addHandlers(const std::vector<std::tuple<HTTPMethod, URLFormat, HandlerFunction>>& handlers) {
+        std::lock_guard wlock(handlerMtx_); // lock write
+        for (const auto &val: handlers) {
+            auto [method, path, fn] = val;
+            handlers_[path].pathRegex = std::regex(path);
+            handlers_[path].funcs[static_cast<int>(method)] = fn;
         }
     }
-    void SimpleServer::addHandlers(URLFormat path, HTTPMethod method, HandlerFunction fn) {
-        handlers_[path] = {method, fn};
+
+    void SimpleServer::setDefaultHandler(HTTPMethod method, HandlerFunction fn) {
+        std::lock_guard wlock(handlerMtx_); // lock write
+        defaultHandlers_[method] = fn;
+    }
+
+    void SimpleServer::addHandler(URLFormat path, HTTPMethod method, HandlerFunction fn) {
+        std::lock_guard wlock(handlerMtx_); // lock write
+        handlers_[path].pathRegex = std::regex(path);
+        handlers_[path].funcs[static_cast<int>(method)] = fn;
     }
 
     SimpleServer::StatVal SimpleServer::getStat() const {
@@ -445,26 +457,20 @@ namespace libs::http {
         return {std::string(s), port};
     }
 
-    std::pair<bool, SimpleServer::HandlerFunction> SimpleServer::getHandler(HTTPMethod method, const std::string &path) {
-        // exact match first
-        std::pair<bool, SimpleServer::HandlerFunction> ret;
-        ret.first = false;
+    SimpleServer::HandlerFunction SimpleServer::getHandler(HTTPMethod method, const std::string &path) {
+        std::shared_lock rlock(handlerMtx_); // lock read
+        // try exact match first
         auto iter = handlers_.find(path);
         if (iter != handlers_.end()) {
-            ret.first = (method == iter->second.first);
-            ret.second = iter->second.second;
-            return ret;
+            return iter->second.funcs[static_cast<int>(method)];
         }
-        // try regex match
-        for (const auto &ele: handlers_) {
-            auto pathRegex = std::regex(ele.first);// todo: this regex should be pre-built
-            if (std::regex_match(path, pathRegex)) {
-                ret.first = (method == ele.second.first);
-                ret.second = ele.second.second;
-                return ret;
+        // retry regex match
+        for (auto [_, inf] : handlers_) {
+            if (std::regex_match(path, inf.pathRegex)) {
+                return inf.funcs[static_cast<int>(method)];
             }
         }
-        return ret;
+        return nullptr;
     }
 
     void SimpleServer::addConnection(int i, int fd, AddrPair &&addr) {
@@ -529,12 +535,5 @@ namespace libs::http {
     void SimpleServer::onExpectContinue(HTTPRequest *, HTTPResponse *res) {
         assert(res);
         res->http_code(CODE_100);
-    }
-
-    void SimpleServer::onDefaultGet(HTTPRequest *req, HTTPResponse *res) {
-        res->http_code(CODE_404);
-        res->insert_header({"Content-Type", "application/json"});
-        auto sendData = R"JSON({"errors": "resource not found"})JSON";
-        res->str_body(sendData);
     }
 }// namespace libs::http

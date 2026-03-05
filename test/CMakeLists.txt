@@ -13,17 +13,17 @@ set(test_SRC
     HttpServer_test.cpp
 )
 
-add_executable(test-libs
+add_executable(dummy-test
     ${test_SRC}
 )
 
-set_target_properties(test-libs PROPERTIES
+set_target_properties(dummy-test PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
 )
 
-target_include_directories(test-libs PRIVATE
+target_include_directories(dummy-test PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
     $<INSTALL_INTERFACE:include>
 )
@@ -33,17 +33,17 @@ target_include_directories(test-libs PRIVATE
 # echo 2 | sudo tee /proc/sys/kernel/randomize_va_space # re-enable
 # https://stackoverflow.com/questions/78136716/addresssanitizerdeadlysignal-from-fsanitize-address-flag
 
-target_compile_options(test-libs PRIVATE
+target_compile_options(dummy-test PRIVATE
     -g
     -fsanitize=address -fno-omit-frame-pointer
 )
 
-# target_link_directories(test-libs PRIVATE
+# target_link_directories(dummy-test PRIVATE
 #         ${CMAKE_PREFIX_PATH}/lib
 #         ${CMAKE_PREFIX_PATH}/lib64
 # )
 
-target_link_libraries(test-libs PRIVATE
+target_link_libraries(dummy-test PRIVATE
     libs::dummy
     ssl crypto
     gtest gtest_main
@@ -53,7 +53,7 @@ target_link_libraries(test-libs PRIVATE
 
 # PROPERTIES ENVIRONMENT "GTEST_OUTPUT=xml:${CMAKE_BINARY_DIR}/test_results/"
 
-gtest_discover_tests(test-libs)
+gtest_discover_tests(dummy-test)
 
 # todo: test http server
 # add_executable(test-http-server)

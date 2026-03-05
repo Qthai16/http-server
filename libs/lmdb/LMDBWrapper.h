@@ -47,11 +47,10 @@ using RWMutex = std::shared_mutex;
 #define LMDBLOG_W(fmt, ...)                  \
     do {                                     \
         fprintf(stderr, fmt, ##__VA_ARGS__); \
-        fprintf(stdout, "\n");               \
+        fprintf(stderr, "\n");               \
     } while (false)
 #else
 // todo: use logger
-#include "Logger.h"
 #define LMDBLOG_O(fmt, ...)
 #define LMDBLOG_W(fmt, ...)
 // #define LMDBLOG_O(fmt, ...) Logger::I().info(fmt, ##__VA_ARGS__)

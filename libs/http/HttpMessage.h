@@ -16,7 +16,7 @@ namespace libs::http {
     using BufferType = libs::MemBuf;
 
     enum class HTTPMethod {
-        GET,
+        GET = 0,
         HEAD,
         POST,
         PUT,
@@ -24,7 +24,8 @@ namespace libs::http {
         CONNECT,
         OPTIONS,
         TRACE,
-        PATCH
+        PATCH,
+        _SIZE_ // this should be last
     };
 
     enum class HTTPVersion {

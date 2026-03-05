@@ -20,6 +20,7 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <shared_mutex>
 
 #include "HttpMessage.h"
 
@@ -29,7 +30,6 @@
 #define QUEUEBACKLOG     1024
 #define MAX_EPOLL_EVENTS 512
 #define MAX_CACHE_CONN   128
-// #define RES_BUF_SIZE     8192
 #define CACHE_CONN
 
 namespace libs::http {
@@ -153,8 +153,7 @@ namespace libs::http {
     class SimpleServer;
     class Acceptor {
     public:
-        Acceptor(SimpleServer *server, EpollHandle *epollHandle) : th_(nullptr), server_(server),
-                                                                   sockEventData_(), pairEventData_(), socketFd_(-1), handle_(epollHandle) {}
+        Acceptor(SimpleServer *server) : th_(nullptr), server_(server), handle_(), socketFd_(-1), pipes_{-1, -1} {}
         ~Acceptor();
 
         void start();
@@ -167,10 +166,8 @@ namespace libs::http {
     private:
         std::unique_ptr<std::thread> th_;
         SimpleServer *server_;
-        std::unique_ptr<EventBase> sockEventData_;
-        std::unique_ptr<EventBase> pairEventData_;
+        EpollHandle handle_;
         int socketFd_;
-        EpollHandle *handle_;
         int pipes_[2];
     };
 
@@ -190,7 +187,7 @@ namespace libs::http {
 
     private:
         static std::atomic_int id_;
-        std::unique_ptr<EpollHandle> handle_;
+        EpollHandle handle_;
         SimpleServer *server_;
         std::unique_ptr<std::thread> th_;
         int pipes_[2];
@@ -200,8 +197,14 @@ namespace libs::http {
     public:
         using URLFormat = std::string;
         using HandlerFunction = std::function<void(HTTPRequest *, HTTPResponse *)>;
-        using HandlersMap = std::unordered_map<URLFormat, std::pair<HTTPMethod, HandlerFunction>>;// todo: this should be vector<std::pair<method, handler>>
-        using RegexHandlerMap = std::unordered_map<std::regex, std::pair<HTTPMethod, HandlerFunction>>;
+        struct HandlerInfo {
+            std::regex pathRegex;
+            std::vector<HandlerFunction> funcs;
+
+            HandlerInfo() : pathRegex(), funcs(static_cast<int>(HTTPMethod::_SIZE_)) {}
+        };
+
+        using HandlersMap = std::unordered_map<URLFormat, HandlerInfo>;
         using DefaultHandlersMap = std::map<HTTPMethod, HandlerFunction>;
 
         struct HandlerTask {
@@ -251,7 +254,7 @@ namespace libs::http {
             int closedConn{0};
             int createdConn{0};
         };
-        // should write a override function that auto assignment Stat --> StatVal
+        // todo: should write a override function that auto assignment Stat --> StatVal
 
     public:
         SimpleServer(std::string address, unsigned int port, std::size_t poolSize = 1);
@@ -260,14 +263,15 @@ namespace libs::http {
         void start();
         void stop();
         bool isRunning() const;
-        void addHandlers(const HandlersMap &handlers);
-        void addHandlers(URLFormat path, HTTPMethod method, HandlerFunction fn);
+        void addHandler(URLFormat path, HTTPMethod method, HandlerFunction fn);
+        void addHandlers(const std::vector<std::tuple<HTTPMethod, URLFormat, HandlerFunction>>& handlers);
+        void setDefaultHandler(HTTPMethod method, HandlerFunction fn);
         StatVal getStat() const;
 
     private:
         // void workerFn(HandlerTask &&task);
         AddrPair addrParse(struct sockaddr *sa);
-        std::pair<bool, HandlerFunction> getHandler(HTTPMethod method, const std::string &path);
+        HandlerFunction getHandler(HTTPMethod method, const std::string &path);
         void addConnection(int i, int fd, AddrPair &&addr);
         ConnData *getOrCreateConn(int fd, AddrPair &&addr);
         bool pushCacheConn(ConnData *conn);
@@ -286,8 +290,8 @@ namespace libs::http {
         std::size_t _poolSize;
         HandlersMap handlers_;
         DefaultHandlersMap defaultHandlers_;
+        std::shared_mutex handlerMtx_;
         std::atomic_bool _stop;
-        EpollHandle accEpoll_;// for acceptor
         std::unique_ptr<Acceptor> acceptor_;
         std::vector<IOWorker *> ioWorkers_;
 #ifdef CACHE_CONN

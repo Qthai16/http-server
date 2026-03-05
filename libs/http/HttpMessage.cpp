@@ -549,6 +549,7 @@ namespace libs::http {
         _readType = ReadType::FILE_READ;
         auto fd = open(path.c_str(), O_RDONLY, 0644);
         if (fd < 0) {
+            // todo: set code 500 and return error msg
             throw std::runtime_error("failed to open stream");
         }
         fileFd_ = fd;
