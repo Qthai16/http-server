@@ -4,36 +4,28 @@ project(test)
 
 include(GoogleTest)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-set(libs_SRC
-    ${CMAKE_CURRENT_SOURCE_DIR}/../libs/SSLUtils.cpp
-)
-
-# test libs
 set(test_SRC
     StrUtils_test.cpp
     FileUtils_test.cpp
     JoinableThread_test.cpp
     SSLUtils_test.cpp
+    HttpMessage_test.cpp
+    HttpServer_test.cpp
 )
 
 add_executable(test-libs
-    ${libs_SRC}
     ${test_SRC}
 )
 
-# set_target_properties(test-libs PROPERTIES
-#     CXX_STANDARD 20
-#     # CXX_EXTENSIONS OFF
-#     CXX_STANDARD_REQUIRED ON
-# )
+set_target_properties(test-libs PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
 
 target_include_directories(test-libs PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/..
-    ${CMAKE_PREFIX_PATH}/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
+    $<INSTALL_INTERFACE:include>
 )
 
 # notes: disable address space layout randomization (ASLR) when build test with ASan
@@ -52,6 +44,7 @@ target_compile_options(test-libs PRIVATE
 # )
 
 target_link_libraries(test-libs PRIVATE
+    libs::dummy
     ssl crypto
     gtest gtest_main
     pthread

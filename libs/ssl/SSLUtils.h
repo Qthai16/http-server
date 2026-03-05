@@ -23,6 +23,8 @@
 #include <string_view>
 #endif
 
+#include "Defines.h"
+
 namespace libs {
     namespace ssl {
         using ResultPair = std::pair<bool, std::string>;
@@ -51,30 +53,30 @@ namespace libs {
             decltype(&EVP_EncryptFinal_ex) finalize;
         };
 
-        ResultPair doCipher(const EVP_CIPHER *cipher,
+        LIB_DECLSPEC ResultPair doCipher(const EVP_CIPHER *cipher,
                             const char *input, size_t inputLen,
                             const char *secret, size_t secretLen,
                             const char *iv, size_t ivLen,
                             const CipherActions &cipherAct,
                             size_t outputSizeHint = 0);
 
-        ResultPair encrypt(const EVP_CIPHER *cipher,
+        LIB_DECLSPEC ResultPair encrypt(const EVP_CIPHER *cipher,
                            const char *plain, size_t plainLen,
                            const char *secret, size_t secretLen,
                            const char *iv, size_t ivLen);
 
-        ResultPair decrypt(const EVP_CIPHER *cipher,
+        LIB_DECLSPEC ResultPair decrypt(const EVP_CIPHER *cipher,
                            const char *encrypted, size_t encryptedLen,
                            const char *secret, size_t secretLen,
                            const char *iv, size_t ivLen);
 #if __cplusplus >= 201703L
 
-        std::optional<std::string> encrypt(const EVP_CIPHER *cipher,
+        LIB_DECLSPEC std::optional<std::string> encrypt(const EVP_CIPHER *cipher,
                                            std::string_view text,
                                            std::string_view key,
                                            std::string_view iv);
 
-        std::optional<std::string> decrypt(const EVP_CIPHER *cipher,
+        LIB_DECLSPEC std::optional<std::string> decrypt(const EVP_CIPHER *cipher,
                                            std::string_view text,
                                            std::string_view key,
                                            std::string_view iv);
@@ -91,32 +93,32 @@ namespace libs {
         using EVPMDCtxPtr = std::unique_ptr<EVP_MD_CTX, evp_md_deletor<EVP_MD_CTX>>;
         using HashVal = std::vector<unsigned char>;
 
-        HashVal hash(const EVP_MD *method, const char *data, size_t len, size_t blocksize = 0);
+        LIB_DECLSPEC HashVal hash(const EVP_MD *method, const char *data, size_t len, size_t blocksize = 0);
 #if __cplusplus >= 201703L
-        HashVal hash(const EVP_MD *method, std::string_view data);
+        LIB_DECLSPEC HashVal hash(const EVP_MD *method, std::string_view data);
 #endif
-        HashVal hash_file(const EVP_MD *method, const char *filepath);
+        LIB_DECLSPEC HashVal hash_file(const EVP_MD *method, const char *filepath);
 
-        HashVal sha256(const char *data, size_t len, size_t blocksize = 0);
-        HashVal sha256_file(const char *filepath);
+        LIB_DECLSPEC HashVal sha256(const char *data, size_t len, size_t blocksize = 0);
+        LIB_DECLSPEC HashVal sha256_file(const char *filepath);
 
-        HashVal sha1(const char *data, size_t len, size_t blocksize = 0);
-        HashVal md5(const char *data, size_t len, size_t blocksize = 0);
+        LIB_DECLSPEC HashVal sha1(const char *data, size_t len, size_t blocksize = 0);
+        LIB_DECLSPEC HashVal md5(const char *data, size_t len, size_t blocksize = 0);
     };// namespace hash_utils
 
     namespace base64 {
-        std::string encode(const char *buffer, size_t length);
-        std::string decode(const char *msg, size_t len);
+        LIB_DECLSPEC std::string encode(const char *buffer, size_t length);
+        LIB_DECLSPEC std::string decode(const char *msg, size_t len);
 
 #if __cplusplus >= 201703L
-        std::string encode(std::string_view buffer);
-        std::string decode(std::string_view msg);
+        LIB_DECLSPEC std::string encode(std::string_view buffer);
+        LIB_DECLSPEC std::string decode(std::string_view msg);
 #endif
     };// namespace base64
 
-    std::string key_from_str(const EVP_CIPHER *cipher, const std::string& str);
-    std::string rand_iv(const EVP_CIPHER *cipher);
-    std::string iv_from_int(const EVP_CIPHER *cipher, const std::vector<int>& vals);
+    LIB_DECLSPEC std::string key_from_str(const EVP_CIPHER *cipher, const std::string& str);
+    LIB_DECLSPEC std::string rand_iv(const EVP_CIPHER *cipher);
+    LIB_DECLSPEC std::string iv_from_int(const EVP_CIPHER *cipher, const std::vector<int>& vals);
 }// namespace libs
 
 #endif// LIBS_SSLUTILS_H

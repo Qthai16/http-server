@@ -5,11 +5,49 @@ project(dummy
     LANGUAGES CXX
 )
 
+find_package(Threads REQUIRED)
+
+option(USE_OPENSSL "Build with OpenSSL" ON)
+option(USE_LMDB "Build with LMDB" ON)
+# option(USE_LIBCURL "Build with libcurl" OFF)
+# option(USE_BOOST "Build with boost" OFF)
+# option(BUILD_TEST "Build test" OFF)
+
+if (USE_OPENSSL)
+    # libcurl4-openssl-dev
+    find_package(OpenSSL REQUIRED)
+    set(LIB_INCLUDE_DIRS ${LIB_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIR})
+    list(APPEND LINK_LIBS ${OPENSSL_LIBRARIES})
+    list(APPEND LIB_FILES ssl/SSLUtils.cpp) # helper utils
+endif()
+
+list(APPEND LIB_FILES
+    http/HttpMessage.cpp
+    http/SimpleServer.cpp
+)
+
+if (USE_LMDB)
+    list(APPEND LINK_LIBS lmdb)
+endif()
+
+# if (USE_LIBCURL)
+#     # libssl-dev
+#     find_package(CURL REQUIRED)
+#     set(LIB_INCLUDE_DIRS ${LIB_INCLUDE_DIRS} ${CURL_INCLUDE_DIR})
+#     set(LINK_LIBS ${LINK_LIBS} ${CURL_LIBRARIES})
+# endif()
+
+# if (USE_BOOST)
+#     include(BoostMacros)
+#     REQUIRE_BOOST_HEADERS()
+#     # set(BOOST_COMPONENTS filesystem)
+#     # REQUIRE_BOOST_LIBRARIES(BOOST_COMPONENTS)
+# endif()
+
 include(GNUInstallDirs)
 
 add_library(dummy SHARED
-    HttpMessage.cpp
-    SimpleServer.cpp
+    ${LIB_FILES}
 )
 
 add_library(libs::dummy ALIAS dummy)
@@ -17,15 +55,13 @@ add_library(libs::dummy ALIAS dummy)
 set_target_properties(dummy PROPERTIES
     VERSION     ${PROJECT_VERSION}
     SOVERSION   ${PROJECT_VERSION_MAJOR}
-    CXX_STANDARD 17
+    CXX_STANDARD ${CMAKE_CXX_STANDARD}
     CXX_STANDARD_REQUIRED ON
 )
 
-# Root of the repo is two levels up; expose it so #include "libs/..." and
-# #include "json11/..." work from consumer code as well.
 target_include_directories(dummy
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<INSTALL_INTERFACE:include>
 )
 
@@ -35,7 +71,7 @@ target_compile_options(dummy PRIVATE
 )
 
 target_link_libraries(dummy
-    PUBLIC  pthread
+    PUBLIC  pthread ${LINK_LIBS}
     PRIVATE $<$<CONFIG:Debug>:-fsanitize=address>
 )
 
@@ -48,10 +84,10 @@ install(TARGETS dummy
 )
 
 # ── Install: public headers ────────────────────────────────────────────────────
-install(FILES
-    HttpMessage.h
-    SimpleServer.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/dummy/http
+install(DIRECTORY
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/dummy
+    FILES_MATCHING PATTERN "*.h"
 )
 
 # ── Install: CMake export set ──────────────────────────────────────────────────

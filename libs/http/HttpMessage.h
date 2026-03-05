@@ -10,7 +10,7 @@
 #include <streambuf>
 #include <memory>
 
-#include "libs/MemBuffer.h"
+#include "MemBuffer.h"
 namespace libs::http {
     using HeadersMap = std::map<std::string, std::string>;
     using BufferType = libs::MemBuf;

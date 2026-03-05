@@ -23,7 +23,7 @@
 
 #include "HttpMessage.h"
 
-#include "libs/WorkerPool.h"
+#include "WorkerPool.h"
 
 #define BUFFER_SIZE      8192
 #define QUEUEBACKLOG     1024

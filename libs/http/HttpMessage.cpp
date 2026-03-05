@@ -1,9 +1,9 @@
 #include "HttpMessage.h"
 
-#include "libs/StrUtils.h"
-#include "libs/FileUtils.h"
-#include "libs/Defines.h"
-#include "libs/MemBuffer.h"
+#include "StrUtils.h"
+#include "FileUtils.h"
+#include "Defines.h"
+#include "MemBuffer.h"
 
 #include <sys/types.h>
 #include <unistd.h>

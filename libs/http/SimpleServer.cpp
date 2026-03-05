@@ -1,6 +1,6 @@
 #include "SimpleServer.h"
-#include "libs/StrUtils.h"
-#include "libs/MemBuffer.h"
+#include "StrUtils.h"
+#include "MemBuffer.h"
 
 #include <sys/poll.h>
 #include <sys/ioctl.h>
@@ -173,9 +173,10 @@ namespace libs::http {
             throw std::runtime_error("pipe failed");
         handle_.reset(new EpollHandle());
         handle_->init();
-        auto stopEvent = new PairEventData(pipes_[0]);
-        handle_->add_or_modify_fd(pipes_[0], EPOLLIN, EPOLL_CTL_ADD, stopEvent);
         th_ = std::make_unique<std::thread>([this, id]() {
+            std::unique_ptr<PairEventData> stopEvent;
+            stopEvent.reset(new PairEventData(pipes_[0]));
+            handle_->add_or_modify_fd(pipes_[0], EPOLLIN, EPOLL_CTL_ADD, stopEvent.get());
             printf("IOWorker[%d] started\n", id);
             eventLoop();
             printf("IOWorker[%d] stopped\n", id);
@@ -211,8 +212,8 @@ namespace libs::http {
                         } else if (eventTypes & EPOLLIN) {
                             auto pairEvent = reinterpret_cast<PairEventData *>(handle_->events[i].data.ptr);
                             pairEvent->_bytesInBuffer = ::read(fd, pairEvent->_eventBuffer, 1);
-                            delete event;
-                            event = nullptr;
+                            // delete event;
+                            // event = nullptr;
                             return;
                         } else if (eventTypes & EPOLLOUT) {
                             printf("unhandled pair epoll out\n");
