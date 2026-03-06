@@ -14,22 +14,10 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <fcntl.h>
 #include <functional>
 
 namespace libs {
-
-    class Defer final {
-    public:
-        explicit Defer(std::function<void()> &&fn) : fn_(std::move(fn)) {}
-        ~Defer() { fn_(); }
-        Defer(const Defer &) = delete;
-        Defer &operator=(const Defer &) = delete;
-        Defer(Defer&&) = delete;
-        Defer& operator=(Defer&&) = delete;
-
-    private:
-        std::function<void()> fn_;
-    };
 
     inline ssize_t write(int fd, int64_t off, const void *buf, size_t size) {
         ssize_t ret = 0;
@@ -101,6 +89,15 @@ namespace libs {
     inline bool isFile(const char *path) {
         struct ::stat st;
         return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+    }
+
+    inline int64_t file_size(const char* path) {
+        int fd = ::open(path, O_RDONLY, 00644);
+        if (fd < 0) return -1;
+        struct ::stat st;
+        if (::fstat(fd, &st) != 0)
+            return -1;
+        return st.st_size;
     }
 
 };// namespace libs

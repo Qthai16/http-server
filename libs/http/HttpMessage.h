@@ -8,12 +8,15 @@
 #include <string>
 #include <algorithm>
 #include <streambuf>
+#include <memory>
 
-namespace simple_http {
+#include "MemBuffer.h"
+namespace libs::http {
     using HeadersMap = std::map<std::string, std::string>;
+    using BufferType = libs::MemBuf;
 
     enum class HTTPMethod {
-        GET,
+        GET = 0,
         HEAD,
         POST,
         PUT,
@@ -21,7 +24,8 @@ namespace simple_http {
         CONNECT,
         OPTIONS,
         TRACE,
-        PATCH
+        PATCH,
+        _SIZE_ // this should be last
     };
 
     enum class HTTPVersion {
@@ -30,45 +34,40 @@ namespace simple_http {
         HTTP_2_0 = 20
     };
 
-    enum HTTPStatusCode {
-        Continue = 100,
-        OK = 200,
-        Created = 201,
-        Accepted = 202,
-        NonAuthoritativeInformation = 203,
-        NoContent = 204,
-        ResetContent = 205,
-        PartialContent = 206,
-        MultipleChoices = 300,
-        MovedPermanently = 301,
-        Found = 302,
-        NotModified = 304,
-        BadRequest = 400,
-        Unauthorized = 401,
-        Forbidden = 403,
-        NotFound = 404,
-        MethodNotAllowed = 405,
-        RequestTimeout = 408,
-        ImATeapot = 418,
-        InternalServerError = 500,
-        NotImplemented = 501,
-        BadGateway = 502,
-        ServiceUnvailable = 503,
-        GatewayTimeout = 504,
-        HttpVersionNotSupported = 505
+    enum HTTPCode : uint16_t {
+        CODE_100 = 100,
+        CODE_200 = 200,
+        CODE_201 = 201,
+        CODE_202 = 202,
+        CODE_203 = 203,
+        CODE_204 = 204,
+        CODE_205 = 205,
+        CODE_206 = 206,
+        CODE_300 = 300,
+        CODE_301 = 301,
+        CODE_302 = 302,
+        CODE_304 = 304,
+        CODE_400 = 400,
+        CODE_401 = 401,
+        CODE_403 = 403,
+        CODE_404 = 404,
+        CODE_405 = 405,
+        CODE_408 = 408,
+        CODE_418 = 418,
+        CODE_500 = 500,
+        CODE_501 = 501,
+        CODE_502 = 502,
+        CODE_503 = 503,
+        CODE_504 = 504,
+        CODE_505 = 505
     };
 
     std::string method_str(const HTTPMethod &method);
     std::string version_str(const HTTPVersion &version);
-    std::string status_code_str(const HTTPStatusCode &code);
+    std::string status_code_str(const HTTPCode &code);
     std::pair<bool, HTTPVersion> str_to_http_version(const std::string &str);
     std::pair<bool, HTTPMethod> str_to_method(const std::string &str);
     std::string headers_get_field(const HeadersMap &headers, std::string key);
-
-    struct BufferType {
-        char *buf;
-        size_t len;
-    };
 
     class HTTPResponse {
     public:
@@ -78,45 +77,50 @@ namespace simple_http {
             IN_MEMORY_READ = 1
         };
 
-        HTTPResponse();
+        HTTPResponse(size_t bufsize);
         ~HTTPResponse();
         HTTPResponse(const HTTPResponse &) = delete;
         const HTTPResponse &operator=(const HTTPResponse &other) = delete;
         HTTPResponse(HTTPResponse &&other);
+        HTTPResponse& operator=(HTTPResponse &&other);
 
-    public:                                                                 // for server and io worker
-        std::size_t serialize_reponse(char *buffer, std::size_t bufferSize);// todo: this should return Buffer{const char* data, size_t len} (view only data)
-        bool writeDone() const;
+    public: // for server and io worker
+        void write_reponse();
+        std::shared_ptr<BufferType> get_buf() const;
+        bool write_done() const;
         void resetData();
 
     public:// for handler
-        void status_code(HTTPStatusCode statusCode);
-        void set_str_body(const std::string &content);
-        void set_file_body(std::string path);
+        void http_code(HTTPCode httpCode);
+        void str_body(const std::string &content);
+        void str_body(const char* buf, size_t size);
+        void file_body(std::string path);
         void insert_header(std::pair<std::string, std::string> val);
 
     private:
-        std::size_t serialize_header(char *buffer, std::size_t bufferSize);
-        std::size_t serialize_body(std::istream &is, char *buffer, std::size_t bufferSize);
+        void init_buffer(size_t size);
+        void write_header();
+        void write_mem_body();
+        void write_file_body();
 
     private:
+        // static size_t inline maxBufferSize_ = (2 << 16) - 1;
         HTTPVersion _version;
-        HTTPStatusCode _statusCode;
+        HTTPCode _httpCode;
         HeadersMap _headers;
-        std::ifstream _body;// bad, should refactor later
-        std::stringstream _inMemoryBody;
 
+        std::shared_ptr<BufferType> buffer_;
         std::string memBody_;
         int fileFd_;
-        int64_t fileOff_;
+        int64_t wrOff_{0};
         ReadType _readType;
         bool _finishWriteHeader;
-        std::size_t _totalWrite;
-        std::size_t _contentLength;
+        std::size_t _totalWrite{0};
+        std::size_t _contentLength{0};
     };
 
     struct HTTPRequest {
-        HTTPRequest();
+        HTTPRequest(size_t bufSize);
         ~HTTPRequest() = default;
 
         std::string get_header(const std::string &key) const;
@@ -129,8 +133,9 @@ namespace simple_http {
 
         void parse_query_params(const std::string &path);
         std::size_t parse_headers(const char *buffer, std::size_t bufsize);
-        std::size_t parse_request(char *buffer, std::size_t bytesCount);
-        // BufferType parse_request(MemBuf *membuf);
+        std::size_t parse_request();
+        libs::MemBuf* get_buf();
+        std::string body_str() const;
         // for debug and logging
         std::string to_string(std::ostream &os = std::cout);
         std::string to_json(std::ostream &os = std::cout);
@@ -140,11 +145,13 @@ namespace simple_http {
         HeadersMap _headers;
         HeadersMap _queryParams;
         std::string _path;
-        std::stringstream _body;
+        libs::MemBuf recv_buf_;
+        libs::MemBuf body_buf_;
         std::size_t _totalRead;
+        std::size_t _headerSize;
         std::size_t _contentLength;
         bool _expectContinue;
         bool _finishParseHeaders;
     };
 
-}// namespace simple_http
+}// namespace libs::http

@@ -1,5 +1,6 @@
 #include "SimpleServer.h"
-#include "libs/StrUtils.h"
+#include "StrUtils.h"
+#include "MemBuffer.h"
 
 #include <sys/poll.h>
 #include <sys/ioctl.h>
@@ -9,11 +10,14 @@
 using namespace std::chrono_literals;
 
 // todo: cleanup connection (close fd, delete event) when server stop
+// todo: use readv and writev to read/write multiple app buffer
+// todo: socket with timeout, push to min heap and cleanup if expired
+// todo: seperated handler thread for calling request handler
 
 #include <chrono>
 class SimpleTimer {
 public:
-    SimpleTimer(const char *name) : begin_(std::chrono::steady_clock::now()), name_(name) {}
+    SimpleTimer(const char *name) : begin_(std::chrono::steady_clock::now()), name_(name), stop_(false) {}
     ~SimpleTimer() {
         if (!stop_)
             stop();
@@ -30,7 +34,7 @@ private:
     bool stop_;
 };
 
-namespace simple_http {
+namespace libs::http {
     std::map<std::string, std::string> _mimeTypes = {
             {".js", "text/javascript"},
             {".txt", "text/plain"},
@@ -47,13 +51,13 @@ namespace simple_http {
         auto addr = server_->_address.c_str();
         auto port = server_->_port;
         struct ::sockaddr_in serv_addr;
-        memset(&serv_addr, '0', sizeof(serv_addr));
+        memset(&serv_addr, 0, sizeof(serv_addr));
         serv_addr.sin_family = AF_INET;
         serv_addr.sin_addr.s_addr = INADDR_ANY;
         ::inet_pton(AF_INET, addr, &(serv_addr.sin_addr.s_addr));
         serv_addr.sin_port = ::htons(port);
 
-        int rv = ::socketpair(AF_UNIX, SOCK_STREAM, 0, pair_);
+        auto rv = ::pipe(pipes_);
         if (rv != 0)
             throw std::runtime_error("socket pair failed");
 
@@ -70,51 +74,53 @@ namespace simple_http {
 
         if (::listen(socketFd_, QUEUEBACKLOG) < 0)
             throw std::runtime_error("Failed to listen socket");
-        sockEventData_.reset(new EventBase(socketFd_, EventType::ACCEPTOR));
-        pairEventData_.reset(new PairEventData(pair_[0]));
-        handle_->add_or_modify_fd(socketFd_, EPOLLIN, EPOLL_CTL_ADD, sockEventData_.get());
-        handle_->add_or_modify_fd(pair_[0], EPOLLIN, EPOLL_CTL_ADD, pairEventData_.get());
+
+        handle_.init();
     }
 
     void Acceptor::eventLoop() {
+        std::unique_ptr<EventBase> sockEventData;
+        std::unique_ptr<EventBase> pairEventData;
+        sockEventData.reset(new EventBase(socketFd_, EventType::ACCEPTOR));
+        pairEventData.reset(new PairEventData(pipes_[0]));
+        handle_.add_or_modify_fd(socketFd_, EPOLLIN, EPOLL_CTL_ADD, sockEventData.get());
+        handle_.add_or_modify_fd(pipes_[0], EPOLLIN, EPOLL_CTL_ADD, pairEventData.get());
+
         auto ind = 0;// round robin
         auto workerSize = server_->ioWorkers_.size();
         while (server_->isRunning()) {
-            auto nfds = ::epoll_wait(handle_->_epollFd, handle_->events, MAX_EPOLL_EVENTS, -1);// wait forever
+            auto nfds = ::epoll_wait(handle_._epollFd, handle_.events, MAX_EPOLL_EVENTS, -1);// wait forever
             if (nfds <= 0)
                 continue;
             for (auto i = 0; i < nfds; i++) {
-                auto event = reinterpret_cast<EventBase *>(handle_->events[i].data.ptr);
-                auto eventTypes = handle_->events[i].events;
+                auto event = reinterpret_cast<EventBase *>(handle_.events[i].data.ptr);
+                auto eventTypes = handle_.events[i].events;
+                auto fd = event->_fd;
                 switch (event->_type) {
                     case EventType::PAIR_IO: {
                         if (eventTypes & EPOLLIN) {
-                            event->_bytesInBuffer = ::recv(event->_fd, event->_eventBuffer, event->bufferCap_, 0);
-                            assert(event->_bytesInBuffer == 1);
-                            printf("acceptor interrupted\n");
+                            auto pairEvent = reinterpret_cast<PairEventData *>(handle_.events[i].data.ptr);
+                            pairEvent->_bytesInBuffer = ::read(fd, pairEvent->_eventBuffer, 1);
+                            assert(pairEvent->_bytesInBuffer == 1);
                             return;
                         }
                     } break;
                     case EventType::ACCEPTOR: {
-                        assert(event->_fd == socketFd_);
+                        assert(fd == socketFd_);
                         struct ::sockaddr_storage connAddr;
                         ::socklen_t connAddrSize = sizeof(connAddr);
                         auto clientfd = accept4(socketFd_, (struct sockaddr *) &connAddr, &connAddrSize, SOCK_NONBLOCK);
                         if (clientfd < 0) {
                             int errno_copy = errno;
                             if (errno_copy == EAGAIN || errno_copy == EWOULDBLOCK) {
-                                break;// no more connections
+                                goto stop_accept;
                             } else {
-                                printf("Acceptor::start() accept() errno: %s\n", strerror(errno_copy));
-                                perror("accept failed");
-                                break;
+                                goto stop_accept;
                             }
                         }
 
                         auto addrPair = server_->addrParse((struct sockaddr *) &connAddr);
-                        // printf("New connection: %s:%d\n", addrPair.first.c_str(), addrPair.second);
-                        // todo: change this to addNewConnCallback, should not directly modify server epoll handle
-                        server_->incActiveConn();
+                        server_->stat_.incActiveConn();
                         server_->addConnection(ind++, clientfd, std::move(addrPair));
                         if (ind >= workerSize) ind = 0;
                     } break;
@@ -123,6 +129,8 @@ namespace simple_http {
                         assert(0);
                 }
             }
+        stop_accept:
+            assert(true);
         }
     }
 
@@ -136,22 +144,21 @@ namespace simple_http {
     }
 
     bool Acceptor::stop() {
-        static char buf[1] = {'\0'};
-        assert(pair_[1] > 0);
-        auto rv = write(pair_[1], buf, 1);
+        static const char *buf = "a";
+        assert(pipes_[1] > 0);
+        auto rv = ::write(pipes_[1], buf, 1);
         return rv == 1;
     }
 
     Acceptor::~Acceptor() {
-        // stop();
         if (th_) {
             th_->join();
             th_.reset();
         }
         if (socketFd_ > 0) ::close(socketFd_);
-        ::close(pair_[0]);
-        ::close(pair_[1]);
-        pair_[0] = pair_[1] = -1;
+        ::close(pipes_[0]);
+        ::close(pipes_[1]);
+        pipes_[0] = pipes_[1] = -1;
     }
 
     IOWorker::~IOWorker() {
@@ -159,21 +166,21 @@ namespace simple_http {
             th_->join();
             th_.reset();
         }
-        ::close(pair_[0]);
-        ::close(pair_[1]);
-        pair_[0] = pair_[1] = -1;
+        ::close(pipes_[0]);
+        ::close(pipes_[1]);
+        pipes_[0] = pipes_[1] = -1;
     }
 
     void IOWorker::start() {
         auto id = id_.fetch_add(1, std::memory_order_acq_rel);
-        int rv = ::socketpair(AF_UNIX, SOCK_STREAM, 0, pair_);
+        auto rv = ::pipe(pipes_);
         if (rv != 0)
-            throw std::runtime_error("socket pair failed");
-        handle_.reset(new EpollHandle());
-        handle_->init();
-        auto stopEvent = new PairEventData(pair_[0]);
-        handle_->add_or_modify_fd(pair_[0], EPOLLIN, EPOLL_CTL_ADD, stopEvent);
+            throw std::runtime_error("pipe failed");
+        handle_.init();
         th_ = std::make_unique<std::thread>([this, id]() {
+            std::unique_ptr<PairEventData> stopEvent;
+            stopEvent.reset(new PairEventData(pipes_[0]));
+            handle_.add_or_modify_fd(pipes_[0], EPOLLIN, EPOLL_CTL_ADD, stopEvent.get());
             printf("IOWorker[%d] started\n", id);
             eventLoop();
             printf("IOWorker[%d] stopped\n", id);
@@ -181,37 +188,34 @@ namespace simple_http {
     }
 
     bool IOWorker::stop() {
-        static char buf[1] = {'\0'};
-        assert(pair_[1] > 0);
-        auto rv = write(pair_[1], buf, 1);
+        static const char *buf = "b";
+        assert(pipes_[1] > 0);
+        auto rv = ::write(pipes_[1], buf, 1);
         return rv == 1;
     }
 
-    void IOWorker::addConn(int fd, std::pair<std::string, int> &&addr) {
+    void IOWorker::addConn(int fd, AddrPair &&addr) {
         auto eventData = server_->getOrCreateConn(fd, std::move(addr));
-        handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, eventData);// leveled triggered
+        handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, eventData);// leveled triggered
     }
 
     void IOWorker::eventLoop() {
         while (server_->isRunning()) {
-            auto nfds = ::epoll_wait(handle_->_epollFd, handle_->events, MAX_EPOLL_EVENTS, -1);// wait forever
+            auto nfds = ::epoll_wait(handle_._epollFd, handle_.events, MAX_EPOLL_EVENTS, -1);// wait forever
             if (nfds <= 0) {
                 continue;
             }
             for (auto i = 0; i < nfds; i++) {
-                auto event = reinterpret_cast<EventBase *>(handle_->events[i].data.ptr);
+                auto event = reinterpret_cast<EventBase *>(handle_.events[i].data.ptr);
                 auto fd = event->_fd;
-                auto eventTypes = handle_->events[i].events;
+                auto eventTypes = handle_.events[i].events;
                 switch (event->_type) {
                     case EventType::PAIR_IO: {
                         if (eventTypes & (EPOLLHUP | EPOLLERR)) {
                             cleanupEvent(event);
                         } else if (eventTypes & EPOLLIN) {
-                            event->_bytesInBuffer = ::recv(fd, event->_eventBuffer, event->bufferCap_, 0);
-                            assert(event->_bytesInBuffer == 1);
-                            delete event;
-                            event = nullptr;
-                            // printf("iothread interrupted\n");
+                            auto pairEvent = reinterpret_cast<PairEventData *>(handle_.events[i].data.ptr);
+                            pairEvent->_bytesInBuffer = ::read(fd, pairEvent->_eventBuffer, 1);
                             return;
                         } else if (eventTypes & EPOLLOUT) {
                             printf("unhandled pair epoll out\n");
@@ -223,11 +227,9 @@ namespace simple_http {
                     } break;
                     case EventType::CONN_IO: {
                         auto reqEventData = (ConnData *) event;
-                        if (eventTypes & (EPOLLHUP | EPOLLERR)) {// errors or event is not handled
-                            // printf("connection close: %d\n", eventTypes);
+                        if (eventTypes & (EPOLLHUP | EPOLLERR)) {
                             cleanupEvent(reqEventData);
                         } else if (eventTypes & EPOLLIN) {
-                            // todo: add total request metrics
                             handleRead(reqEventData);
                         } else if (eventTypes & EPOLLOUT) {
                             handleWrite(reqEventData);
@@ -241,107 +243,103 @@ namespace simple_http {
                         assert(0);
                 }
             }
-            // todo: process the remain requests
         }
     }
 
-    void IOWorker::handleRead(ConnData *eventDataPtr) {
+    void IOWorker::handleRead(ConnData *connPtr) {
         try {
-            assert(eventDataPtr);
-            auto fd = eventDataPtr->_fd;
-            auto httpReqPtr = eventDataPtr->req;
-            auto byte_count = ::recv(fd, eventDataPtr->_eventBuffer, eventDataPtr->bufferCap_, 0);
-            if (byte_count > 0) {
-                eventDataPtr->_bytesInBuffer = byte_count;
-                httpReqPtr->parse_request(eventDataPtr->_eventBuffer, eventDataPtr->_bytesInBuffer);
+            assert(connPtr);
+            auto fd = connPtr->_fd;
+            auto httpReqPtr = connPtr->req;
+            auto recvBuf = httpReqPtr->get_buf();
+            if (recvBuf->wr_avail() == 0) {
+                cleanupEvent(connPtr);
+                server_->stat_.incFailedReq();
+                return;
+            }
+            auto bytes = ::recv(fd, recvBuf->wr_pos(), recvBuf->wr_avail(), 0);
+            if (bytes > 0) {
+                recvBuf->incWrPos(bytes);
+                httpReqPtr->parse_request();
                 if (httpReqPtr->have_expect_continue()) {
                     printf("expect continue\n");
                     httpReqPtr->_expectContinue = false;
                     auto tmpEvent = std::make_unique<ConnData>(fd);
                     server_->onExpectContinue(tmpEvent->req, tmpEvent->res);
-                    tmpEvent->_bytesInBuffer = tmpEvent->res->serialize_reponse(tmpEvent->_eventBuffer, tmpEvent->bufferCap_);
-                    // send here in order to not mess up with handleWrite state
-                    ::send(fd, tmpEvent->_eventBuffer, tmpEvent->_bytesInBuffer, MSG_NOSIGNAL);
+                    tmpEvent->res->write_reponse();
+                    ::send(fd, tmpEvent->res->get_buf()->rd_pos(), tmpEvent->res->get_buf()->size(), MSG_NOSIGNAL);
                 }
-                if (!httpReqPtr->request_completed()) {// still have bytes to read
-                    handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
-                } else {// read done
-                    auto httpResPtr = eventDataPtr->res;
-                    // eventDataPtr->resetBuffer();
-                    auto pair = server_->getHandler(httpReqPtr->_method, httpReqPtr->_path);
-                    if (pair.first) {
-                        pair.second(httpReqPtr, httpResPtr);// call registered handler
-                        // serialize first part of response, the rest of body will be handle in HandleWriteEvent
-                        // eventDataPtr->_bytesInBuffer = httpResPtr->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
-                        handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
+                if (!httpReqPtr->request_completed()) {
+                    handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
+                } else { // todo: move this handler calling to worker thread
+                    auto httpResPtr = connPtr->res;
+                    auto handler = server_->getHandler(httpReqPtr->_method, httpReqPtr->_path);
+                    if (handler) {
+                        // registered handler
+                        handler(httpReqPtr, httpResPtr);
+                    } else if (auto iter = server_->defaultHandlers_.find(httpReqPtr->_method); iter != server_->defaultHandlers_.end()) {
+                        // method default handler
+                        iter->second(httpReqPtr, httpResPtr);
                     } else {
-                        if (server_->defaultHandlers_.count(httpReqPtr->_method)) {// not registered path
-                            server_->defaultHandlers_.at(httpReqPtr->_method)(httpReqPtr, httpResPtr);
-                            // eventDataPtr->_bytesInBuffer = httpResPtr->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
-                            handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
-                        } else {
-                            // method not supported or default handler for method not found
-                        }
+                        // method not allowed
+                        httpResPtr->http_code(CODE_405);
+                        httpResPtr->insert_header({"Content-Type", "application/json"});
+                        httpResPtr->str_body(R"JSON({"errors": "method not allowed"})JSON");
                     }
+                    handle_.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
                 }
-            } else if ((byte_count < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                // no data available, try again
+            } else if ((bytes < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 printf("handleRead: retry\n");
-                eventDataPtr->resetData();
-                handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
+                handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
             } else {
-                // byte_count = 0 (connection close by client) and other errors
-                cleanupEvent(eventDataPtr);
+                cleanupEvent(connPtr);
             }
         } catch (const std::exception &e) {
-            fprintf(stderr, "IOWorker::handleRead exception: %s\n", e.what());
-            cleanupEvent(eventDataPtr);
+            cleanupEvent(connPtr);
+            server_->stat_.incFailedReq();
             return;
         } catch (...) {
             fprintf(stderr, "IOWorker::handleRead unknown exception\n");
-            cleanupEvent(eventDataPtr);
+            cleanupEvent(connPtr);
+            server_->stat_.incFailedReq();
             return;
         }
     }
 
-    void IOWorker::handleWrite(ConnData *eventDataPtr) {
-        assert(eventDataPtr);
-        auto fd = eventDataPtr->_fd;
-        if (eventDataPtr->res->writeDone()) {
-            eventDataPtr->resetData();
-            handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
-            // todo: add success request metrics
-            return;
-        }
-        eventDataPtr->_bytesInBuffer = eventDataPtr->res->serialize_reponse(eventDataPtr->_eventBuffer, eventDataPtr->bufferCap_);
-        auto sendBytes = ::send(fd, eventDataPtr->_eventBuffer, eventDataPtr->_bytesInBuffer, MSG_NOSIGNAL);
+    void IOWorker::handleWrite(ConnData *connPtr) {
+        assert(connPtr);
+        auto fd = connPtr->_fd;
+        connPtr->res->write_reponse();
+        auto sendbuf = connPtr->res->get_buf();
+        auto sendBytes = ::send(fd, sendbuf->rd_pos(), sendbuf->size(), MSG_NOSIGNAL);
         if (sendBytes >= 0) {
-            handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
-            if (!eventDataPtr->res->writeDone()) {// still have bytes to send
-                // eventDataPtr->_bytesInBuffer = eventDataPtr->res->serialize_reponse(eventDataPtr->_eventBuffer, BUFFER_SIZE);
-                handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, eventDataPtr);
+            sendbuf->incRdPos(sendBytes);
+            if (sendbuf->empty()) {
+                sendbuf->resetBuf();
+            }
+            if (!connPtr->res->write_done()) {
+                handle_.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
             } else {
-                eventDataPtr->resetData();
-                handle_->add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, eventDataPtr);
+                connPtr->resetData();
+                handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
+                server_->stat_.incSuccessReq();
             }
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {// retry
-                // todo: how to test this condition??
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 printf("handleWrite: retry\n");
-                handle_->add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_ADD, eventDataPtr);
+                handle_.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
             } else {
-                cleanupEvent(eventDataPtr);
+                cleanupEvent(connPtr);
             }
         }
     }
 
     void IOWorker::cleanupEvent(EventBase *event) {
         auto connData = dynamic_cast<ConnData *>(event);
-        handle_->delete_fd(event->_fd);
+        handle_.delete_fd(event->_fd);
         ::close(event->_fd);
         if (connData) {
-            // printf("cleanup conn: %s:%d\n", connData->addr.first.c_str(), connData->addr.second);
-            server_->decActiveConn();
+            server_->stat_.decActiveConn();
             server_->pushCacheConn(connData);
             return;
         }
@@ -361,7 +359,6 @@ namespace simple_http {
                                                                                                _stop(false),
                                                                                                acceptor_(nullptr),
                                                                                                ioWorkers_() {
-        defaultHandlers_[HTTPMethod::GET] = &SimpleServer::onDefaultGet;
     }
 
     void SimpleServer::start() {
@@ -369,13 +366,14 @@ namespace simple_http {
         for (auto i = 0; i < _poolSize; i++) {
             ioWorkers_[i] = new IOWorker(this);
         }
-        accEpoll_.init();
-        acceptor_.reset(new Acceptor(this, &accEpoll_));
+        // start acceptor
+        acceptor_.reset(new Acceptor(this));
         acceptor_->start();
-
+        // start io workers
         for (auto &w: ioWorkers_) {
             w->start();
         }
+        // todo: condition variable to wait until all workers and acceptor are ready
         printf("Simple server start listening on %s:%d\n", _address.c_str(), _port);
     }
 
@@ -388,12 +386,14 @@ namespace simple_http {
                 delete io;
                 io = nullptr;
             }
+#ifdef CACHE_CONN
             printf("cached connections: %d\n", static_cast<int>(cacheConn_.size()));
             while (!cacheConn_.empty()) {
                 auto conn = cacheConn_.top();
                 cacheConn_.pop();
                 delete conn;
             }
+#endif
         }
     }
 
@@ -401,17 +401,42 @@ namespace simple_http {
         return !_stop.load(std::memory_order_acquire);
     }
 
-    void SimpleServer::addHandlers(const HandlersMap &handlers) {
-        for (const auto &ele: handlers) {
-            handlers_[ele.first] = ele.second;
+    void SimpleServer::addHandlers(const std::vector<std::tuple<HTTPMethod, URLFormat, HandlerFunction>>& handlers) {
+        std::lock_guard wlock(handlerMtx_); // lock write
+        for (const auto &val: handlers) {
+            auto [method, path, fn] = val;
+            handlers_[path].pathRegex = std::regex(path);
+            handlers_[path].funcs[static_cast<int>(method)] = fn;
         }
     }
-    void SimpleServer::addHandlers(URLFormat path, HTTPMethod method, HandlerFunction fn) {
-        handlers_[path] = {method, fn};
+
+    void SimpleServer::setDefaultHandler(HTTPMethod method, HandlerFunction fn) {
+        std::lock_guard wlock(handlerMtx_); // lock write
+        defaultHandlers_[method] = fn;
     }
 
-    int SimpleServer::getActiveConnStat() const {
-        return activeConnCnt.load(std::memory_order_relaxed);
+    void SimpleServer::addHandler(URLFormat path, HTTPMethod method, HandlerFunction fn) {
+        std::lock_guard wlock(handlerMtx_); // lock write
+        handlers_[path].pathRegex = std::regex(path);
+        handlers_[path].funcs[static_cast<int>(method)] = fn;
+    }
+
+    SimpleServer::StatVal SimpleServer::getStat() const {
+        StatVal ret;
+        ret.activeConn = stat_.activeConn.load(std::memory_order_relaxed);
+        ret.failedReq = stat_.failedReq.load(std::memory_order_relaxed);
+        ret.successReq = stat_.successReq.load(std::memory_order_relaxed);
+        ret.createdConn = stat_.createdConn.load(std::memory_order_relaxed);
+        ret.dropConn = stat_.dropConn.load(std::memory_order_relaxed);
+#ifdef CACHE_CONN
+        {
+            std::lock_guard<std::mutex> lock(cacheConnMtx_);
+            ret.cacheConn = cacheConn_.size();
+        }
+#else
+        ret.cacheConn = 0;
+#endif
+        return ret;
     }
 
     std::pair<std::string, int> SimpleServer::addrParse(struct sockaddr *sa) {
@@ -429,31 +454,23 @@ namespace simple_http {
             port = ((struct sockaddr_in6 *) sa)->sin6_port;
         }
         ::inet_ntop(sa->sa_family, host, s, sizeof(s));
-        return {std::string(s, sizeof(s)), port};
+        return {std::string(s), port};
     }
 
-    std::pair<bool, SimpleServer::HandlerFunction> SimpleServer::getHandler(HTTPMethod method, const std::string &path) {
-        // exact match first
-        // todo: getHandler are called by multiple io thread without mutex
-        std::pair<bool, SimpleServer::HandlerFunction> ret;
-        ret.first = false;
+    SimpleServer::HandlerFunction SimpleServer::getHandler(HTTPMethod method, const std::string &path) {
+        std::shared_lock rlock(handlerMtx_); // lock read
+        // try exact match first
         auto iter = handlers_.find(path);
         if (iter != handlers_.end()) {
-            ret.first = (method == iter->second.first);
-            ret.second = iter->second.second;
-            return ret;
+            return iter->second.funcs[static_cast<int>(method)];
         }
-        // todo: move to regex handler
-        // try regex match
-        for (const auto &ele: handlers_) {
-            auto pathRegex = std::regex(ele.first);// todo: this regex should be pre-built
-            if (std::regex_match(path, pathRegex)) {
-                ret.first = (method == ele.second.first);
-                ret.second = ele.second.second;
-                return ret;
+        // retry regex match
+        for (auto [_, inf] : handlers_) {
+            if (std::regex_match(path, inf.pathRegex)) {
+                return inf.funcs[static_cast<int>(method)];
             }
         }
-        return ret;
+        return nullptr;
     }
 
     void SimpleServer::addConnection(int i, int fd, AddrPair &&addr) {
@@ -462,7 +479,8 @@ namespace simple_http {
     }
 
     ConnData *SimpleServer::getOrCreateConn(int fd, AddrPair &&addr) {
-        std::unique_lock<std::mutex> lock(mtx_);
+#ifdef CACHE_CONN
+        std::unique_lock<std::mutex> lock(cacheConnMtx_);
         if (!cacheConn_.empty()) {
             auto conn = cacheConn_.top();
             assert(conn);
@@ -485,12 +503,18 @@ namespace simple_http {
             return conn;
         }
         lock.unlock();
+        stat_.incCreatedConn();
         return new ConnData(fd, std::move(addr));
+#else
+        stat_.incCreatedConn();
+        return new ConnData(fd, std::move(addr));
+#endif
     }
 
     bool SimpleServer::pushCacheConn(ConnData *conn) {
         if (!conn) return false;
-        std::unique_lock<std::mutex> lock(mtx_);
+#ifdef CACHE_CONN
+        std::unique_lock<std::mutex> lock(cacheConnMtx_);
         if (cacheConn_.size() >= MAX_CACHE_CONN) {
             lock.unlock();
             delete conn;
@@ -501,32 +525,15 @@ namespace simple_http {
         lock.unlock();
         cv_.notify_one();
         return true;
+#else
+        delete conn;
+        conn = nullptr;
+        return true;
+#endif
     }
-
-    void SimpleServer::incActiveConn() {
-        activeConnCnt.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    void SimpleServer::decActiveConn() {
-        activeConnCnt.fetch_sub(1, std::memory_order_relaxed);
-    }
-
-    // todo: dung socket pair de notify write response done --> trigger memcpy tu HTTPResponse vao buffer
-    // event write buffer: memcpy tu HTTPResponse vao buffer
-    // event write socket: write tu buffer vao socket
-
-    // event read buffer: parse_request tu buffer vao HTTPRequest
-    // event read socket: read tu socket vao buffer
 
     void SimpleServer::onExpectContinue(HTTPRequest *, HTTPResponse *res) {
         assert(res);
-        res->status_code(HTTPStatusCode::Continue);
+        res->http_code(CODE_100);
     }
-
-    void SimpleServer::onDefaultGet(HTTPRequest *req, HTTPResponse *res) {
-        res->status_code(HTTPStatusCode::NotFound);
-        res->insert_header({"Content-Type", "application/json"});
-        auto sendData = R"JSON({"errors": "resource not found"})JSON";
-        res->set_str_body(sendData);
-    }
-};// namespace simple_http
+}// namespace libs::http

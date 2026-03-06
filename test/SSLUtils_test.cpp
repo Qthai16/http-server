@@ -3,7 +3,7 @@
 #include <string>
 #include <string_view>
 
-#include "libs/SSLUtils.h"
+#include "libs/ssl/SSLUtils.h"
 #include "libs/StrUtils.h"
 
 using namespace libs;
@@ -18,15 +18,15 @@ TEST(ssl_utils, base64_test) {
 TEST(ssl_utils, hash_test) {
     std::string plain("this is test data");
     auto sha256 = hash_utils::sha256(plain.data(), plain.size());
-    auto expectSHA256 = libs::fromHexStr("c893900c1106f13d55648a425f502dd6518e40eaa3ac7d24023d4c73d55dc12e");
+    auto expectSHA256 = fromHexStr("c893900c1106f13d55648a425f502dd6518e40eaa3ac7d24023d4c73d55dc12e");
     ASSERT_EQ(sha256, expectSHA256);
 
     auto md5sum = hash_utils::md5(plain.data(), plain.size());
-    auto expectMD5 = libs::fromHexStr("4491147927626d42bec20f372abfcb0d");
+    auto expectMD5 = fromHexStr("4491147927626d42bec20f372abfcb0d");
     ASSERT_EQ(md5sum, expectMD5);
 
     auto sha1 = hash_utils::sha1(plain.data(), plain.size());
-    auto expectSHA1 = libs::fromHexStr("f3c351aca845352503cc693e50ccbcab83609175");
+    auto expectSHA1 = fromHexStr("f3c351aca845352503cc693e50ccbcab83609175");
     ASSERT_EQ(sha1, expectSHA1);
 
     // auto val = hash_utils::sha256_file("/home/thaipq/proj/commondb/custom/cmake-build-debug/server");

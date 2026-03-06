@@ -26,61 +26,75 @@ namespace fs = std::filesystem;
 namespace fs = std::experimental::filesystem;
 #endif
 
-#include "src/HttpMessage.h"
+#include "libs/http/HttpMessage.h"
 #ifdef USE_OPENSSL
-#include "src/SSLUtils.h"
+#include "libs/SSLUtils.h"
 #endif
-#include "src/SimpleServer.h"
+#include "libs/http/SimpleServer.h"
 
 #include "libs/StrUtils.h"
 
 using namespace std::placeholders;
-using namespace simple_http;
+using namespace libs::http;
+using namespace std::string_literals;
+// using std::cout, std::endl;
+// using std::string, std::map, std::tuple;
 
-// #define THREADPOOL_SIZE 4
+constexpr auto g_defaultAddr = "0.0.0.0";
+constexpr auto g_defaultPort = 11225;
+constexpr auto g_workerSize = 4;
 
-#define Q(x)                      #x
-#define ASSERT_EQ(first, second)  assert(first == second)
-#define ASSERT_NEQ(first, second) assert(first != second)
+std::shared_ptr<SimpleServer> server_{nullptr};
 
-static void SendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *response) {
-    // response->_version = req._version;
-    response->insert_header({"Connection", "keep-alive"});
+#include <signal.h>
+#include "libs/OSUtils.h"
+extern "C" void signalHandler(int signum) {
+}
 
-    if (!fs::exists(path)) {
-        // send 404 not found
-        std::string sendData = R"JSON({"errors": "resource not found"})JSON";
-        response->status_code(HTTPStatusCode::NotFound);
-        response->set_str_body(sendData);
-        response->insert_header({"Content-Type", "application/json"});
-        return;
-    }
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        // send internal error
-        std::string sendData = R"JSON({"errors": "failed to open file"})JSON";
-        response->status_code(HTTPStatusCode::InternalServerError);
-        response->set_str_body(sendData);
-        response->insert_header({"Content-Type", "application/json"});
-        return;
-    }
-    file.close();// close here bc HTTPResponse will open this file
+struct Opts {
+    Opts() : addr(g_defaultAddr), port(g_defaultPort), workerSize(g_workerSize) {}
+
+    std::string addr;
+    int port;
+    int workerSize;
+};
+
+void onResourceNotFound(HTTPRequest *req, HTTPResponse *res) {
+    res->http_code(CODE_404);
+    res->insert_header({"Content-Type", "application/json"});
+    auto sendData = R"JSON({"errors": "Not Found"})JSON";
+    res->str_body(sendData);
+}
+
+static void sendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *response) {
+    // if (!fs::exists(path)) {
+    //     // send 404 not found
+    //     std::string sendData = R"JSON({"errors": "resource not found"})JSON";
+    //     response->http_code(CODE_404);
+    //     response->str_body(sendData);
+    //     response->insert_header({"Content-Type", "application/json"});
+    //     return;
+    // }
 
     auto extension = fs::path(path).extension().string();
-    if (simple_http::_mimeTypes.count(extension)) {
-        response->insert_header({"Content-Type", simple_http::_mimeTypes.at(extension)});
+    if (libs::http::_mimeTypes.count(extension)) {
+        response->insert_header({"Content-Type", libs::http::_mimeTypes.at(extension)});
     } else {
         response->insert_header({"Content-Type", "application/octet-stream"});// default for others
     }
-    response->status_code(HTTPStatusCode::OK);
-    response->set_file_body(path);
+    response->http_code(CODE_200);
+    // std::stringstream ss;
+    // ss << file.rdbuf();
+    // response->str_body(ss.str());
+    response->file_body(path);
+    // todo: leaked mem due to connection not being clean up (tested by chrome)
 }
 
-static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
-    SimpleServer::HandlersMap handlersMap;
+std::vector<std::tuple<HTTPMethod, SimpleServer::URLFormat, SimpleServer::HandlerFunction>> buildStaticAssets(std::string rootPath) {
     if (!fs::exists(rootPath) || !fs::is_directory(rootPath)) {
-        return handlersMap;
+        return {};
     }
+    std::vector<std::tuple<HTTPMethod, SimpleServer::URLFormat, SimpleServer::HandlerFunction>> ret;
     for (auto &entry: fs::recursive_directory_iterator(rootPath)) {
         if (!fs::is_regular_file(entry.path()))
             continue;
@@ -91,9 +105,11 @@ static SimpleServer::HandlersMap ServeStaticResources(std::string rootPath) {
         // std::cout << "filename: " << filePath.filename().string() << ", extension: " << filePath.extension().string() << std::endl;
         if (urlPath == "/index.html")
             urlPath = "/";
-        handlersMap[urlPath] = {HTTPMethod::GET, std::bind(&SendStaticFile, absolutePath, _1, _2)};
+        ret.emplace_back(HTTPMethod::GET, urlPath, [path = absolutePath](auto *req, auto *res) {
+            sendStaticFile(path, req, res);
+        });
     }
-    return handlersMap;
+    return ret;
 }
 
 static void HandlePostForm(HTTPRequest *req, HTTPResponse *res) {
@@ -103,81 +119,80 @@ static void HandlePostForm(HTTPRequest *req, HTTPResponse *res) {
     if (!filename.empty()) {
         std::ofstream outputFile(libs::simple_format("post-file/{}-{}", filename, ++inc));
         if (outputFile.is_open()) {
-            outputFile << req->_body.str();
+            outputFile << req->body_str();
         }
     }
     std::string sendData = R"JSON({"results": "upload form successfully"})JSON";
-    // res._version = req._version;
     res->insert_header({"Content-Type", "application/json"});
-    res->status_code(HTTPStatusCode::OK);
-    res->set_str_body(sendData);
+    res->http_code(CODE_200);
+    res->str_body(sendData);
 }
 
-using namespace std::string_literals;
-// using std::cout, std::endl;
-// using std::string, std::map, std::tuple;
+#include "json11/json11.hpp"
 
-auto g_test_GET_request = R"TEST(GET / HTTP/1.1
-Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
-Accept-Encoding: gzip, deflate
-Accept-Language: en-US,en;q=0.9
-Cache-Control: max-age=0
-Connection: keep-alive
-Host: 172.31.234.35:11225
-Upgrade-Insecure-Requests: 1
-User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36
-)TEST";
-
-auto g_test_POST_request = R"TEST(POST /form HTTP/1.1
-Host: localhost:11225
-User-Agent: curl/7.68.0
-Accept: */*
-Content-Length: 4391168
-Content-Type: application/x-www-form-urlencoded
-Expect: 100-continue)TEST";
-
-auto g_test_requests = {g_test_GET_request, g_test_POST_request};
-
-#include <signal.h>
-#include "libs/OSUtils.h"
-extern "C" void signalHandler(int signum) {
-}
-
-int main(int argc, char *argv[]) {
-    if (argc != 3) {
-        std::cerr << "Usage: [executable] <address> <port> \n";
-        return -1;
+static void HandleGetStat(HTTPRequest *req, HTTPResponse *res) {
+    json11::Json::object stat{};
+    if (!server_) {
+        res->http_code(CODE_500);
+        return;
     }
+    auto metrics = server_->getStat();
+    stat["active_conn"] = metrics.activeConn;
+    stat["success_req"] = static_cast<int>(metrics.successReq);
+    stat["failed_req"] = metrics.failedReq;
+    stat["cache_conn"] = metrics.cacheConn;
+    stat["created_conn"] = metrics.createdConn;
+    stat["dropped_conn"] = metrics.dropConn;
+    res->insert_header({"Content-Type", "application/json"});
+    res->http_code(CODE_200);
+    res->str_body(json11::Json(std::move(stat)).dump());
+}
+
+Opts parseOpts(int argc, const char *argv[]) {
+    try {
+        if (argc <= 1) return {};
+        Opts opts;
+        std::string arg1{argv[1]};
+        auto pos = arg1.find(':');
+        if (pos == std::string::npos) {
+            opts.port = stoi(arg1);
+            return opts;
+        } else {
+            opts.port = stoi(arg1.substr(pos + 1));
+            opts.addr = pos == 0 ? "0.0.0.0" : arg1.substr(0, pos);
+        }
+        if (argc >= 3) {
+            opts.workerSize = stoi(std::string{argv[2]});
+        }
+        return opts;
+    } catch (const std::exception &e) {
+        std::cerr << "exception: " << e.what() << std::endl;
+        std::cerr << "Usage: [executable] <address:port> <thread_pool_size>" << std::endl;
+        exit(-1);
+    }
+}
+
+int main(int argc, const char *argv[]) {
 #ifdef DEBUG
     printf("----------------- DEBUG BUILD -----------------\n");
 #endif
-    std::string address(argv[1]);
-    auto port = stoi(std::string{argv[2]});
-
-    SimpleServer server(address, port, 4);
-    server.addHandlers({
-            {"/", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
-            // {"/[a-zA-z0-9_-].+", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index.html", _1, _2)}},
-            {"/styles.css", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/styles.css", _1, _2)}},
-            {"^/(simple)?test$", {HTTPMethod::GET, std::bind(&SendStaticFile, "static/index-backup.html", _1, _2)}},
-            {"/file", {HTTPMethod::POST, &HandlePostForm}},
+    auto opts = parseOpts(argc, argv);
+    server_.reset(new SimpleServer(opts.addr, opts.port, opts.workerSize));
+    server_->setDefaultHandler(HTTPMethod::GET, onResourceNotFound);
+    server_->addHandlers({
+            {HTTPMethod::GET, "/", [](auto *req, auto *res) { sendStaticFile("static/index.html", req, res); }},
+            // {HTTPMethod::GET, "/styles.css", [](auto *req, auto *res) { sendStaticFile("static/styles.css", req, res); }},
+            // {HTTPMethod::GET, "^/(simple)?test$", [](auto *req, auto *res) { sendStaticFile("static/index-backup.html", req, res); }},
+            {HTTPMethod::POST, "/file", &HandlePostForm},
+            {HTTPMethod::GET, "/stat", &HandleGetStat},
     });
-    auto staticResMap = ServeStaticResources("static");
-    server.addHandlers(staticResMap);
-    server.start();
+    server_->addHandlers(buildStaticAssets("static"));
+    server_->start();
     signal(SIGTERM, signalHandler);
     signal(SIGINT, signalHandler);
     signal(SIGQUIT, signalHandler);
-    std::atomic_bool stopPrint{false};
-    std::thread statPrinter([&stopPrint, &server]() {
-        while (!stopPrint.load(std::memory_order_acquire)) {
-            printf("Active conn size: %d\n", server.getActiveConnStat());
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-    });
     libs::waitForTerminationRequest();
-    stopPrint.store(true);
-    server.stop();
-    statPrinter.join();
+    server_->stop();
+    server_.reset();
     return 0;
 }

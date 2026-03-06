@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(http-server-from-scratch C CXX)
+project(cpp-playground C CXX)
 
-set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 # set(CMAKE_CXX_STANDARD 17)
 # set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,8 +12,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
 
 if (NOT DEFINED CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 17)
-    message(STATUS "Unset CXX standard, default to C++17.")
-    # message(STATUS "To specify a different C++ language level, set CMAKE_CXX_STANDARD")
+    message(STATUS "Unset CXX standard, set to: ${CMAKE_CXX_STANDARD}")
 endif()
 
 # uncomment to hard-coded clang build
@@ -20,57 +21,22 @@ endif()
 
 find_package(Threads REQUIRED)
 
-option(USE_OPENSSL "Build with OpenSSL" OFF)
-option(USE_LIBCURL "Build with libcurl" OFF)
-option(USE_BOOST "Build with boost" OFF)
-option(BUILD_TEST "Build test" OFF)
+option(BUILD_TEST "Build test" ON)
+option(BUILD_EXP "Build experience code" OFF)
 
-if (USE_OPENSSL)
-    # libcurl4-openssl-dev
-    find_package(OpenSSL REQUIRED)
-    set(LIB_INCLUDE_DIRS ${LIB_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIR})
-    set(LINK_LIBS ${LINK_LIBS} ${OPENSSL_LIBRARIES})
-    set(SRC_FILES ${SRC_FILES} libs/SSLUtils.cpp) # helper utils
-endif()
-
-if (USE_LIBCURL)
-    # libssl-dev
-    find_package(CURL REQUIRED)
-    set(LIB_INCLUDE_DIRS ${LIB_INCLUDE_DIRS} ${CURL_INCLUDE_DIR})
-    set(LINK_LIBS ${LINK_LIBS} ${CURL_LIBRARIES})
-endif()
-
-if (USE_BOOST)
-    include(BoostMacros)
-    REQUIRE_BOOST_HEADERS()
-    # set(BOOST_COMPONENTS filesystem)
-    # REQUIRE_BOOST_LIBRARIES(BOOST_COMPONENTS)
-endif()
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# add_definitions(-DOPTION_ABC)
-
-set(SRC_FILES
-    ${SRC_FILES}
-    src/HttpMessage.cpp
-    src/SimpleServer.cpp
-)
-
-set(LINK_LIBS
-    ${LINK_LIBS}
-    pthread
-)
+# build libdummy
+add_subdirectory(libs)
+# build json11 lib
+add_subdirectory(json11)
 
 add_executable(http-server
     test.cpp
-    ${SRC_FILES}
 )
 
-# set_target_properties(http-server PROPERTIES
-#     CXX_STANDARD 17
-#     CXX_STANDARD_REQUIRED ON
-# )
+set_target_properties(http-server PROPERTIES
+    CXX_STANDARD ${CMAKE_CXX_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+)
 # notes: -fsanitize=thread cannot use with -fsanitize=address
 target_compile_options(http-server PRIVATE
     $<$<CONFIG:Debug>:-g -fsanitize=address -fno-omit-frame-pointer>
@@ -84,10 +50,11 @@ target_compile_definitions(http-server PRIVATE
 
 target_include_directories(http-server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${LIB_INCLUDE_DIRS}
 )
 target_link_libraries(http-server PRIVATE
-    ${LINK_LIBS}
+    libs::dummy
+    json11
+    pthread
     $<$<CONFIG:Debug>:-fsanitize=address>
 )
 
@@ -105,3 +72,10 @@ if (BUILD_TEST)
     enable_testing()
     add_subdirectory(test)
 endif()
+
+if (BUILD_EXP)
+    add_subdirectory(exp)
+endif()
+
+# HTTP server + message types are provided by libs/http (libdummy).
+# See libs/http/CMakeLists.txt for the shared-library build and install rules.
