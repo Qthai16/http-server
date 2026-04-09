@@ -1,15 +1,12 @@
-#ifndef SAMPLE_CODES_FIXEDQUEUE_CPP
-#define SAMPLE_CODES_FIXEDQUEUE_CPP
+#ifndef LIBS_FIXEDQUEUE_H
+#define LIBS_FIXEDQUEUE_H
 
 #include <queue>
 #include <vector>
 #include <tuple>
 #include <cstdlib>
 #include <stdexcept>
-
 #include <memory>
-
-std::shared_ptr<int> abc;
 
 template<typename T>
 class FixQueue {
@@ -95,4 +92,4 @@ private:
     size_t cap_;
 };
 
-#endif// SAMPLE_CODES_FIXEDQUEUE_CPP
+#endif // LIBS_FIXEDQUEUE_H

@@ -14,26 +14,6 @@ using namespace std::chrono_literals;
 // todo: socket with timeout, push to min heap and cleanup if expired
 // todo: seperated handler thread for calling request handler
 
-#include <chrono>
-class SimpleTimer {
-public:
-    SimpleTimer(const char *name) : begin_(std::chrono::steady_clock::now()), name_(name), stop_(false) {}
-    ~SimpleTimer() {
-        if (!stop_)
-            stop();
-    }
-    void stop() {
-        auto end = std::chrono::steady_clock::now();
-        fprintf(stderr, "  [%s]: %ldus\n", name_.c_str(), std::chrono::duration_cast<std::chrono::microseconds>(end - begin_).count());
-        stop_ = true;
-    }
-
-private:
-    std::chrono::steady_clock::time_point begin_;
-    std::string name_;
-    bool stop_;
-};
-
 namespace libs::http {
     std::map<std::string, std::string> _mimeTypes = {
             {".js", "text/javascript"},

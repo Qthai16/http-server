@@ -267,6 +267,8 @@ namespace libs::http {
         void addHandlers(const std::vector<std::tuple<HTTPMethod, URLFormat, HandlerFunction>>& handlers);
         void setDefaultHandler(HTTPMethod method, HandlerFunction fn);
         StatVal getStat() const;
+        // bool changePort(int newPort);
+        // void changePoolSize(int newSize);
 
     private:
         // void workerFn(HandlerTask &&task);
@@ -278,7 +280,6 @@ namespace libs::http {
 
     private:
         static void onExpectContinue(HTTPRequest *req, HTTPResponse *res);
-        static void onDefaultGet(HTTPRequest *req, HTTPResponse *res);
 
     private:
         friend class Acceptor;
