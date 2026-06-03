@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/resource.h>
 #include <cstring>
 
 namespace libs {
@@ -31,8 +32,8 @@ namespace libs {
         else if (pid != 0)// parent process
             ::exit(0);
 
-        ::setsid(); // create new session and detach from terminal
-        ::umask(0); // no limit on file permissions
+        ::setsid();// create new session and detach from terminal
+        ::umask(0);// no limit on file permissions
         FILE *fin = ::freopen("/dev/null", "r", stdin);
         if (!fin)
             throw std::runtime_error("Cannot attach stdin to /dev/null");
@@ -66,6 +67,32 @@ namespace libs {
         ::sigprocmask(SIG_UNBLOCK, &sset, NULL);
         int sig;
         ::sigwait(&sset, &sig);
+    }
+
+    bool setMaxFD(size_t maxFD) {
+        struct rlimit r_fd;
+
+        //getrlimit
+        if (getrlimit(RLIMIT_NOFILE, &r_fd) >= 0) {
+            printf("getrlimit return: rlim_max (hard-limit): %u, rlim_cur (soft-limit): %u\n", (unsigned int) r_fd.rlim_max, (unsigned int) r_fd.rlim_cur);
+        } else
+            printf("Could not getrlimit: %s\n", strerror(errno));
+
+        //setrlimit
+        r_fd.rlim_max = maxFD;
+        r_fd.rlim_cur = maxFD;
+        if (setrlimit(RLIMIT_NOFILE, &r_fd) < 0) {
+            printf("Could not setrlimit: %s\n", strerror(errno));
+            return false;
+        }
+
+        //re-getrlimit
+        if (getrlimit(RLIMIT_NOFILE, &r_fd) >= 0) {
+            printf("getrlimit return: rlim_max (hard-limit): %u, rlim_cur (soft-limit): %u\n", (unsigned int) r_fd.rlim_max, (unsigned int) r_fd.rlim_cur);
+        } else
+            printf("Could not getrlimit: %s\n", strerror(errno));
+
+        return true;
     }
 
     // std::atomic_int gSignalVal{-1};

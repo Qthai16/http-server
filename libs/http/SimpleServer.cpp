@@ -46,8 +46,10 @@ namespace libs::http {
             throw std::runtime_error("Failed to open socket");
 
         int enable = 1;
-        if (::setsockopt(socketFd_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &enable, sizeof(enable)) < 0)
-            throw std::runtime_error("Failed to set socket options");
+        if (::setsockopt(socketFd_, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable)) < 0)
+            throw std::runtime_error("Failed to set SO_REUSEADDR");
+        if (::setsockopt(socketFd_, SOL_SOCKET, SO_REUSEPORT, &enable, sizeof(enable)) < 0)
+            throw std::runtime_error("Failed to set SO_REUSEPORT");
 
         if (::bind(socketFd_, (sockaddr *) &serv_addr, sizeof(serv_addr)))
             throw std::runtime_error("Failed to bind socket");
@@ -87,30 +89,24 @@ namespace libs::http {
                     } break;
                     case EventType::ACCEPTOR: {
                         assert(fd == socketFd_);
-                        struct ::sockaddr_storage connAddr;
-                        ::socklen_t connAddrSize = sizeof(connAddr);
-                        auto clientfd = accept4(socketFd_, (struct sockaddr *) &connAddr, &connAddrSize, SOCK_NONBLOCK);
-                        if (clientfd < 0) {
-                            int errno_copy = errno;
-                            if (errno_copy == EAGAIN || errno_copy == EWOULDBLOCK) {
-                                goto stop_accept;
-                            } else {
-                                goto stop_accept;
+                        while (true) {
+                            struct ::sockaddr_storage connAddr;
+                            ::socklen_t connAddrSize = sizeof(connAddr);
+                            auto clientfd = accept4(socketFd_, (struct sockaddr *) &connAddr, &connAddrSize, SOCK_NONBLOCK);
+                            if (clientfd < 0) {
+                                break; // EAGAIN/EWOULDBLOCK: backlog drained
                             }
+                            auto addrPair = server_->addrParse((struct sockaddr *) &connAddr);
+                            server_->ioWorkers_[ind]->stat_.incActiveConn();
+                            server_->addConnection(ind++, clientfd, std::move(addrPair));
+                            if (ind >= workerSize) ind = 0;
                         }
-
-                        auto addrPair = server_->addrParse((struct sockaddr *) &connAddr);
-                        server_->stat_.incActiveConn();
-                        server_->addConnection(ind++, clientfd, std::move(addrPair));
-                        if (ind >= workerSize) ind = 0;
                     } break;
                     default:
                         printf("unknown event: %d\n", static_cast<int>(event->_type));
                         assert(0);
                 }
             }
-        stop_accept:
-            assert(true);
         }
     }
 
@@ -149,18 +145,26 @@ namespace libs::http {
         ::close(pipes_[0]);
         ::close(pipes_[1]);
         pipes_[0] = pipes_[1] = -1;
+        if (completionPipes_[0] != -1) ::close(completionPipes_[0]);
+        if (completionPipes_[1] != -1) ::close(completionPipes_[1]);
+        completionPipes_[0] = completionPipes_[1] = -1;
     }
 
     void IOWorker::start() {
         auto id = id_.fetch_add(1, std::memory_order_acq_rel);
-        auto rv = ::pipe(pipes_);
-        if (rv != 0)
+        if (::pipe(pipes_) != 0)
             throw std::runtime_error("pipe failed");
+        if (::pipe(completionPipes_) != 0)
+            throw std::runtime_error("completion pipe failed");
+        ::fcntl(completionPipes_[0], F_SETFL, ::fcntl(completionPipes_[0], F_GETFL) | O_NONBLOCK);
         handle_.init();
         th_ = std::make_unique<std::thread>([this, id]() {
             std::unique_ptr<PairEventData> stopEvent;
             stopEvent.reset(new PairEventData(pipes_[0]));
             handle_.add_or_modify_fd(pipes_[0], EPOLLIN, EPOLL_CTL_ADD, stopEvent.get());
+            std::unique_ptr<PairEventData> completionEvent;
+            completionEvent.reset(new PairEventData(completionPipes_[0]));
+            handle_.add_or_modify_fd(completionPipes_[0], EPOLLIN, EPOLL_CTL_ADD, completionEvent.get());
             printf("IOWorker[%d] started\n", id);
             eventLoop();
             printf("IOWorker[%d] stopped\n", id);
@@ -176,6 +180,7 @@ namespace libs::http {
 
     void IOWorker::addConn(int fd, AddrPair &&addr) {
         auto eventData = server_->getOrCreateConn(fd, std::move(addr));
+        stat_.incCreatedConn();
         handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, eventData);// leveled triggered
     }
 
@@ -194,9 +199,12 @@ namespace libs::http {
                         if (eventTypes & (EPOLLHUP | EPOLLERR)) {
                             cleanupEvent(event);
                         } else if (eventTypes & EPOLLIN) {
-                            auto pairEvent = reinterpret_cast<PairEventData *>(handle_.events[i].data.ptr);
-                            pairEvent->_bytesInBuffer = ::read(fd, pairEvent->_eventBuffer, 1);
-                            return;
+                            if (fd == pipes_[0]) {
+                                auto pairEvent = reinterpret_cast<PairEventData *>(handle_.events[i].data.ptr);
+                                pairEvent->_bytesInBuffer = ::read(fd, pairEvent->_eventBuffer, 1);
+                                return; // stop signal
+                            }
+                            drainCompletions(); // handler thread finished — reads 8-byte pointer chunks
                         } else if (eventTypes & EPOLLOUT) {
                             printf("unhandled pair epoll out\n");
                             assert(0);
@@ -232,10 +240,10 @@ namespace libs::http {
             auto fd = connPtr->_fd;
             auto httpReqPtr = connPtr->req;
             auto recvBuf = httpReqPtr->get_buf();
-            if (recvBuf->wr_avail() == 0) {
-                cleanupEvent(connPtr);
-                server_->stat_.incFailedReq();
-                return;
+            if (expr_unlikely(recvBuf->wr_avail() == 0)) {
+                // if buffer not inited, init it here
+                if (!recvBuf->inited())
+                    recvBuf->reserve(BUFFER_SIZE);
             }
             auto bytes = ::recv(fd, recvBuf->wr_pos(), recvBuf->wr_avail(), 0);
             if (bytes > 0) {
@@ -247,26 +255,14 @@ namespace libs::http {
                     auto tmpEvent = std::make_unique<ConnData>(fd);
                     server_->onExpectContinue(tmpEvent->req, tmpEvent->res);
                     tmpEvent->res->write_reponse();
-                    ::send(fd, tmpEvent->res->get_buf()->rd_pos(), tmpEvent->res->get_buf()->size(), MSG_NOSIGNAL);
+                    ::send(fd, tmpEvent->res->get_buf()->rd_pos(), tmpEvent->res->get_buf()->rd_avail(), MSG_NOSIGNAL);
                 }
                 if (!httpReqPtr->request_completed()) {
                     handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
-                } else { // todo: move this handler calling to worker thread
-                    auto httpResPtr = connPtr->res;
-                    auto handler = server_->getHandler(httpReqPtr->_method, httpReqPtr->_path);
-                    if (handler) {
-                        // registered handler
-                        handler(httpReqPtr, httpResPtr);
-                    } else if (auto iter = server_->defaultHandlers_.find(httpReqPtr->_method); iter != server_->defaultHandlers_.end()) {
-                        // method default handler
-                        iter->second(httpReqPtr, httpResPtr);
-                    } else {
-                        // method not allowed
-                        httpResPtr->http_code(CODE_405);
-                        httpResPtr->insert_header({"Content-Type", "application/json"});
-                        httpResPtr->str_body(R"JSON({"errors": "method not allowed"})JSON");
-                    }
-                    handle_.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
+                } else {
+                    // disarm while handler runs in the pool to prevent spurious EPOLLIN
+                    handle_.add_or_modify_fd(fd, 0, EPOLL_CTL_MOD, connPtr);
+                    server_->taskPool_->push(SimpleServer::HandlerTask{connPtr, this, server_});
                 }
             } else if ((bytes < 0) && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 printf("handleRead: retry\n");
@@ -276,12 +272,12 @@ namespace libs::http {
             }
         } catch (const std::exception &e) {
             cleanupEvent(connPtr);
-            server_->stat_.incFailedReq();
+            stat_.incFailedReq();
             return;
         } catch (...) {
             fprintf(stderr, "IOWorker::handleRead unknown exception\n");
             cleanupEvent(connPtr);
-            server_->stat_.incFailedReq();
+            stat_.incFailedReq();
             return;
         }
     }
@@ -291,7 +287,7 @@ namespace libs::http {
         auto fd = connPtr->_fd;
         connPtr->res->write_reponse();
         auto sendbuf = connPtr->res->get_buf();
-        auto sendBytes = ::send(fd, sendbuf->rd_pos(), sendbuf->size(), MSG_NOSIGNAL);
+        auto sendBytes = ::send(fd, sendbuf->rd_pos(), sendbuf->rd_avail(), MSG_NOSIGNAL);
         if (sendBytes >= 0) {
             sendbuf->incRdPos(sendBytes);
             if (sendbuf->empty()) {
@@ -302,7 +298,7 @@ namespace libs::http {
             } else {
                 connPtr->resetData();
                 handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_MOD, connPtr);
-                server_->stat_.incSuccessReq();
+                stat_.incSuccessReq();
             }
         } else {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -319,12 +315,24 @@ namespace libs::http {
         handle_.delete_fd(event->_fd);
         ::close(event->_fd);
         if (connData) {
-            server_->stat_.decActiveConn();
+            stat_.decActiveConn();
             server_->pushCacheConn(connData);
             return;
         }
         delete event;
         event = nullptr;
+    }
+
+    void IOWorker::notifyHandlerDone(ConnData *conn) {
+        // sizeof(ConnData*) == 8 bytes, well under PIPE_BUF — write is atomic
+        ::write(completionPipes_[1], &conn, sizeof(conn));
+    }
+
+    void IOWorker::drainCompletions() {
+        ConnData *conn;
+        while (::read(completionPipes_[0], &conn, sizeof(conn)) == sizeof(conn)) {
+            handle_.add_or_modify_fd(conn->_fd, EPOLLOUT, EPOLL_CTL_MOD, conn);
+        }
     }
 
     SimpleServer::~SimpleServer() {
@@ -342,6 +350,30 @@ namespace libs::http {
     }
 
     void SimpleServer::start() {
+        taskPool_ = std::make_unique<TaskPool>(_poolSize, [](HandlerTask &task) {
+            auto *conn = task.data;
+            auto *server = task.server;
+            auto *req = conn->req;
+            auto *res = conn->res;
+
+            auto handler = server->getHandler(req->_method, req->_path);
+            if (!handler) {
+                std::shared_lock rlock(server->handlerMtx_);
+                auto iter = server->defaultHandlers_.find(req->_method);
+                if (iter != server->defaultHandlers_.end()) {
+                    handler = iter->second;
+                }
+            }
+            if (handler) {
+                handler(req, res);
+            } else {
+                res->http_code(CODE_405);
+                res->insert_header({"Content-Type", "application/json"});
+                res->str_body(R"JSON({"errors": "method not allowed"})JSON");
+            }
+            task.ioWorker->notifyHandlerDone(conn);
+        });
+
         ioWorkers_.resize(_poolSize, nullptr);
         for (auto i = 0; i < _poolSize; i++) {
             ioWorkers_[i] = new IOWorker(this);
@@ -361,6 +393,10 @@ namespace libs::http {
         if (!_stop.exchange(true)) {
             acceptor_->stop();
             acceptor_.reset();// wait acceptor join
+            if (taskPool_) {
+                taskPool_->stop(true);// drain in-flight handlers before closing sockets
+                taskPool_.reset();
+            }
             for (auto &io: ioWorkers_) {
                 io->stop();
                 delete io;
@@ -403,11 +439,13 @@ namespace libs::http {
 
     SimpleServer::StatVal SimpleServer::getStat() const {
         StatVal ret;
-        ret.activeConn = stat_.activeConn.load(std::memory_order_relaxed);
-        ret.failedReq = stat_.failedReq.load(std::memory_order_relaxed);
-        ret.successReq = stat_.successReq.load(std::memory_order_relaxed);
-        ret.createdConn = stat_.createdConn.load(std::memory_order_relaxed);
-        ret.dropConn = stat_.dropConn.load(std::memory_order_relaxed);
+        for (const auto *w : ioWorkers_) {
+            ret.activeConn  += w->stat_.activeConn.load(std::memory_order_relaxed);
+            ret.failedReq   += w->stat_.failedReq.load(std::memory_order_relaxed);
+            ret.successReq  += w->stat_.successReq.load(std::memory_order_relaxed);
+            ret.createdConn += w->stat_.createdConn.load(std::memory_order_relaxed);
+            ret.dropConn    += w->stat_.dropConn.load(std::memory_order_relaxed);
+        }
 #ifdef CACHE_CONN
         {
             std::lock_guard<std::mutex> lock(cacheConnMtx_);
@@ -445,7 +483,7 @@ namespace libs::http {
             return iter->second.funcs[static_cast<int>(method)];
         }
         // retry regex match
-        for (auto [_, inf] : handlers_) {
+        for (const auto& [_, inf] : handlers_) {
             if (std::regex_match(path, inf.pathRegex)) {
                 return inf.funcs[static_cast<int>(method)];
             }
@@ -470,23 +508,21 @@ namespace libs::http {
             conn->addr = std::move(addr);
             return conn;
         }
-        auto status = cv_.wait_for(lock, 1ms, [this] {
-            return !cacheConn_.empty();
-        });
-        if (status) {
-            auto conn = cacheConn_.top();
-            assert(conn);
-            cacheConn_.pop();
-            lock.unlock();
-            conn->_fd = fd;
-            conn->addr = std::move(addr);
-            return conn;
-        }
-        lock.unlock();
-        stat_.incCreatedConn();
+        // auto status = cv_.wait_for(lock, 1ms, [this] {
+        //     return !cacheConn_.empty();
+        // });
+        // if (status) {
+        //     auto conn = cacheConn_.top();
+        //     assert(conn);
+        //     cacheConn_.pop();
+        //     lock.unlock();
+        //     conn->_fd = fd;
+        //     conn->addr = std::move(addr);
+        //     return conn;
+        // }
+        // lock.unlock();
         return new ConnData(fd, std::move(addr));
 #else
-        stat_.incCreatedConn();
         return new ConnData(fd, std::move(addr));
 #endif
     }

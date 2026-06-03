@@ -26,11 +26,11 @@
 
 #include "WorkerPool.h"
 
-#define BUFFER_SIZE      8192
+#define BUFFER_SIZE      4096
 #define QUEUEBACKLOG     1024
 #define MAX_EPOLL_EVENTS 512
-#define MAX_CACHE_CONN   128
-#define CACHE_CONN
+// #define MAX_CACHE_CONN   128
+// #define CACHE_CONN
 
 namespace libs::http {
 
@@ -141,10 +141,9 @@ namespace libs::http {
         }
 
         void delete_fd(int clientFd) {
-            if (epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, nullptr) == -1) {
-                throw std::runtime_error("failed to delete fd");
-            }
-            // close(clientFd);
+            if (epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, nullptr) == -1)
+                fprintf(stderr, "epoll_ctl DEL fd %d: %s\n", clientFd, strerror(errno));
+            // always return — caller owns close() and object lifetime
         }
 
         int _epollFd;
@@ -173,46 +172,17 @@ namespace libs::http {
 
     class IOWorker {
     public:
-        explicit IOWorker(SimpleServer *server) : handle_(), server_(server), th_(nullptr) {}
+        explicit IOWorker(SimpleServer *server) : handle_(), server_(server), th_(nullptr), pipes_{-1, -1}, completionPipes_{-1, -1} {}
         ~IOWorker();
         void start();
         bool stop();
         void addConn(int fd, AddrPair &&addr);
+        void notifyHandlerDone(ConnData *conn);
 
-    protected:
-        void eventLoop();
-        void handleRead(ConnData *eventDataPtr);
-        void handleWrite(ConnData *eventDataPtr);
-        void cleanupEvent(EventBase *event);
-
-    private:
-        static std::atomic_int id_;
-        EpollHandle handle_;
-        SimpleServer *server_;
-        std::unique_ptr<std::thread> th_;
-        int pipes_[2];
-    };
-
-    class SimpleServer {
-    public:
-        using URLFormat = std::string;
-        using HandlerFunction = std::function<void(HTTPRequest *, HTTPResponse *)>;
-        struct HandlerInfo {
-            std::regex pathRegex;
-            std::vector<HandlerFunction> funcs;
-
-            HandlerInfo() : pathRegex(), funcs(static_cast<int>(HTTPMethod::_SIZE_)) {}
-        };
-
-        using HandlersMap = std::unordered_map<URLFormat, HandlerInfo>;
-        using DefaultHandlersMap = std::map<HTTPMethod, HandlerFunction>;
-
-        struct HandlerTask {
-            ConnData *data;
-            IOWorker *ioWorker;
-            SimpleServer *server;
-        };
-        using TaskPool = libs::NotifyQueueWorker<HandlerTask>;
+        // Per-worker stats to avoid false sharing: a single shared Stat on SimpleServer would
+        // pack all atomics into one cache line, causing every write from any IO worker or handler
+        // thread to invalidate the line on all other cores. Owning stat here means each worker
+        // writes only to its own cache line; getStat() aggregates on the cold read path.
         struct Stat {
             std::atomic<size_t> successReq{0};
             std::atomic_int activeConn{0};
@@ -245,6 +215,44 @@ namespace libs::http {
                 dropConn.fetch_add(1, std::memory_order_relaxed);
             }
         };
+        Stat stat_;
+
+    protected:
+        void eventLoop();
+        void handleRead(ConnData *eventDataPtr);
+        void handleWrite(ConnData *eventDataPtr);
+        void cleanupEvent(EventBase *event);
+        void drainCompletions();
+
+    private:
+        static std::atomic_int id_;
+        EpollHandle handle_;
+        SimpleServer *server_;
+        std::unique_ptr<std::thread> th_;
+        int pipes_[2];
+        int completionPipes_[2];
+    };
+
+    class SimpleServer {
+    public:
+        using URLFormat = std::string;
+        using HandlerFunction = std::function<void(HTTPRequest *, HTTPResponse *)>;
+        struct HandlerInfo {
+            std::regex pathRegex;
+            std::vector<HandlerFunction> funcs;
+
+            HandlerInfo() : pathRegex(), funcs(static_cast<int>(HTTPMethod::_SIZE_)) {}
+        };
+
+        using HandlersMap = std::unordered_map<URLFormat, HandlerInfo>;
+        using DefaultHandlersMap = std::map<HTTPMethod, HandlerFunction>;
+
+        struct HandlerTask {
+            ConnData *data;
+            IOWorker *ioWorker;
+            SimpleServer *server;
+        };
+        using TaskPool = libs::NotifyQueueWorker<HandlerTask>;
         struct StatVal {
             size_t successReq{0};
             int activeConn{0};
@@ -295,12 +303,12 @@ namespace libs::http {
         std::atomic_bool _stop;
         std::unique_ptr<Acceptor> acceptor_;
         std::vector<IOWorker *> ioWorkers_;
+        std::unique_ptr<TaskPool> taskPool_;
 #ifdef CACHE_CONN
         std::stack<ConnData *> cacheConn_;
         mutable std::mutex cacheConnMtx_;// for caching connections
         std::condition_variable cv_;     // notify when cached connection available
 #endif
-        Stat stat_;
     };
 
 }// namespace libs::http

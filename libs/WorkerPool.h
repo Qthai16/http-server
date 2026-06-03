@@ -51,21 +51,23 @@ namespace libs {
         }
 
         void stop(bool completeAllJob = true) {
-            workerCv.notify_all();
-            if (!workers.empty()) {
+            {
+                std::lock_guard<std::mutex> lock(mtx);
                 completeAll = completeAllJob;
                 requestStop = true;
-                cv.notify_all();
-                for (auto i = 0; i < workers.size(); i++) {
-                    auto &p = workers[i];
-                    if (p) {
-                        p->join();
-                        delete p;
-                        printf("[stop] workers %d stopped\n", i);
-                    }
-                }
-                workers.clear();
             }
+            workerCv.notify_all();
+            cv.notify_all();
+            for (auto i = 0; i < workers.size(); i++) {
+                auto &p = workers[i];
+                if (!p)
+                    continue;
+                p->join();
+                delete p;
+                p = nullptr;
+                printf("[stop] workers %d stopped\n", i);
+            }
+            workers.clear();
         }
 
         bool push(T j) {
@@ -73,15 +75,15 @@ namespace libs {
             if (expr_unlikely(requestStop))
                 return false;
             jobqueue.push(std::move(j));
-            if (onWorkCnt.load(std::memory_order_acquire) < nWorker) {// some worker is idle, notify it
-                lock.unlock();
-                cv.notify_one();
-            }
-            return true;
-            // // always notify
-            // lock.unlock();
-            // cv.notify_one();
+            // if (onWorkCnt.load(std::memory_order_acquire) < nWorker) {// some worker is idle, notify it
+            //     lock.unlock();
+            //     cv.notify_one();
+            // }
             // return true;
+            // always notify
+            lock.unlock();
+            cv.notify_one();
+            return true;
         }
 
         size_t pendingJobs() const {
@@ -103,7 +105,7 @@ namespace libs {
             std::unique_lock<std::mutex> lock(mtx);
             if (n == nWorker) return;
             if (n > nWorker) {
-                addWorkers(n);
+                addWorkers(n); // sync
             } else {
                 nDecreaseWorker = nWorker - n;
                 auto decCnt = nDecreaseWorker;
@@ -114,18 +116,15 @@ namespace libs {
         }
 
         void modifyJobQueue(const std::function<void(NotifyQueueWorker::container_type &)> &cb) {
-            std::lock_guard<std::mutex> lock(mtx);
-            while (onWorkCnt.load(std::memory_order_acquire) > 0) {
-                std::this_thread::sleep_for(std::chrono::microseconds(100));
-            }
-            assert(onWorkCnt.load(std::memory_order_acquire) == 0);
+            std::unique_lock<std::mutex> lock(mtx);
+            drainCv.wait(lock, [&] { return onWorkCnt.load(std::memory_order_acquire) == 0; });
             cb(jobqueue);
         }
 
     private:
         void removeWorkerAt(int idx) {
             // caller always lock
-            if (requestStop) return;
+            if (requestStop) return; // stop() will cleanup
             assert(workers[idx]);
             workers[idx]->join();
             delete workers[idx];
@@ -186,11 +185,12 @@ namespace libs {
                 if (jobqueue.size()) {
                     T j = std::move(jobqueue.front());
                     jobqueue.pop();
-                    onWorkCnt.fetch_add(1, std::memory_order_acq_rel);// increase in lock
+                    onWorkCnt.fetch_add(1, std::memory_order_relaxed); // increase in lock
                     lock.unlock();
-                    handler(j);
-                    onWorkCnt.fetch_sub(1, std::memory_order_acq_rel);
-                    continue;
+                    handler(j); // unlock and run handler
+                    if (onWorkCnt.fetch_sub(1, std::memory_order_acq_rel) == 1)
+                        drainCv.notify_all();
+                    continue; // eager check again if there are jobs remain
                 }
                 cv.wait(lock, [&] {
                     return jobqueue.size() || requestStop || nDecreaseWorker;
@@ -208,10 +208,11 @@ namespace libs {
                 if (jobqueue.empty()) continue;
                 T j = std::move(jobqueue.front());
                 jobqueue.pop();
-                onWorkCnt.fetch_add(1, std::memory_order_acq_rel);
+                onWorkCnt.fetch_add(1, std::memory_order_relaxed);
                 lock.unlock();
-                handler(j);
-                onWorkCnt.fetch_sub(1, std::memory_order_acq_rel);
+                handler(j); // unlock and run handler
+                if (onWorkCnt.fetch_sub(1, std::memory_order_acq_rel) == 1)
+                    drainCv.notify_all();
             } while (expr_likely(!requestStop));
 
             if (completeAll) {
@@ -220,10 +221,11 @@ namespace libs {
                     if (jobqueue.size()) {
                         T j = std::move(jobqueue.front());
                         jobqueue.pop();
-                        onWorkCnt.fetch_add(1, std::memory_order_acq_rel);
+                        onWorkCnt.fetch_add(1, std::memory_order_relaxed);
                         lock.unlock();
                         handler(j);
-                        onWorkCnt.fetch_sub(1, std::memory_order_acq_rel);
+                        if (onWorkCnt.fetch_sub(1, std::memory_order_acq_rel) == 1)
+                            drainCv.notify_all();
                         continue;
                     }
                     return;
@@ -235,7 +237,8 @@ namespace libs {
         TQueue jobqueue;
         std::function<void(T &)> handler;
         std::condition_variable cv;
-        std::condition_variable workerCv;// synchronize worker changes
+        std::condition_variable workerCv;  // synchronize worker count changes
+        std::condition_variable drainCv;   // fired when onWorkCnt reaches zero
         mutable std::mutex mtx;
         std::vector<std::thread *> workers;
         std::vector<int> deadWorkerIds;

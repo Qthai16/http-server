@@ -11,6 +11,7 @@ set(test_SRC
     SSLUtils_test.cpp
     HttpMessage_test.cpp
     HttpServer_test.cpp
+    MemBuffer_test.cpp
 )
 
 add_executable(dummy-test

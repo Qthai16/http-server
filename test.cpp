@@ -43,6 +43,7 @@ using namespace std::string_literals;
 constexpr auto g_defaultAddr = "0.0.0.0";
 constexpr auto g_defaultPort = 11225;
 constexpr auto g_workerSize = 4;
+constexpr size_t g_maxFD = 65535;
 
 std::shared_ptr<SimpleServer> server_{nullptr};
 
@@ -176,6 +177,7 @@ int main(int argc, const char *argv[]) {
 #ifdef DEBUG
     printf("----------------- DEBUG BUILD -----------------\n");
 #endif
+    libs::setMaxFD(g_maxFD);
     auto opts = parseOpts(argc, argv);
     server_.reset(new SimpleServer(opts.addr, opts.port, opts.workerSize));
     server_->setDefaultHandler(HTTPMethod::GET, onResourceNotFound);
