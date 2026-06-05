@@ -229,6 +229,10 @@ namespace libs::http {
         return _finishParseHeaders && _expectContinue;
     }
 
+    void HTTPRequest::reset_expect_continue(bool val) {
+        _expectContinue = val;
+    }
+
     void HTTPRequest::resetData() {
         _headers.clear();
         _queryParams.clear();
@@ -521,8 +525,8 @@ namespace libs::http {
             default:
                 break;
         }
-        buffer_->resetBuf();
-        _httpCode = HTTPCode::CODE_100;
+        if (buffer_) buffer_->resetBuf();
+        _httpCode = HTTPCode::CODE_200;
         _version = HTTPVersion::HTTP_1_1;
         _readType = ReadType::UNINIT;
         _finishWriteHeader = false;

@@ -46,7 +46,7 @@ target_compile_options(dummy-test PRIVATE
 
 target_link_libraries(dummy-test PRIVATE
     libs::dummy
-    ssl crypto
+    ssl crypto curl
     gtest gtest_main
     pthread
     -fsanitize=address

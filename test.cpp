@@ -113,10 +113,12 @@ std::vector<std::tuple<HTTPMethod, SimpleServer::URLFormat, SimpleServer::Handle
     return ret;
 }
 
+#include "libs/RandomUtils.h"
 static void HandlePostForm(HTTPRequest *req, HTTPResponse *res) {
     static int inc = 0;
     // auto filename = req.content_filename();
     auto filename = req->get_header("filename");
+    if (filename.empty()) filename = libs::random_str(5);
     if (!filename.empty()) {
         std::ofstream outputFile(libs::simple_format("post-file/{}-{}", filename, ++inc));
         if (outputFile.is_open()) {

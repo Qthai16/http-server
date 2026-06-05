@@ -129,6 +129,7 @@ namespace libs::http {
         bool expect_100_continue() const;
         bool request_completed() const;
         bool have_expect_continue() const;
+        void reset_expect_continue(bool val);
         void resetData();
 
         void parse_query_params(const std::string &path);

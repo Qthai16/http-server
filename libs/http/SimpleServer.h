@@ -20,7 +20,10 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <mutex>
+#include <queue>
 #include <shared_mutex>
+#include <vector>
 
 #include "HttpMessage.h"
 
@@ -64,53 +67,62 @@ namespace libs::http {
         std::size_t bufferCap_;
     };
 
-    struct ConnData : public EventBase {
-        HTTPRequest *req;
-        HTTPResponse *res;
+    struct ConnData : public EventBase, public std::enable_shared_from_this<ConnData> {
+        std::shared_ptr<HTTPRequest>  req;
+        std::shared_ptr<HTTPResponse> res;
         AddrPair addr;
+        std::chrono::steady_clock::time_point deadline_{}; // zero = not scheduled; set by IOWorker::scheduleTimeout
 
-        ConnData() : EventBase(-1, EventType::CONN_IO), req(nullptr), res(nullptr), addr() {}
-        ConnData(int fd) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest(BUFFER_SIZE)), res(new HTTPResponse(BUFFER_SIZE)), addr() {}
-        ConnData(int fd, AddrPair &&addr_) : EventBase(fd, EventType::CONN_IO), req(new HTTPRequest(BUFFER_SIZE)), res(new HTTPResponse(BUFFER_SIZE)), addr(addr_) {}
+        ConnData() : EventBase(-1, EventType::CONN_IO) {}
+        ConnData(int fd)
+            : EventBase(fd, EventType::CONN_IO),
+              req(std::make_shared<HTTPRequest>(BUFFER_SIZE)),
+              res(std::make_shared<HTTPResponse>(BUFFER_SIZE)) {}
+        ConnData(int fd, AddrPair &&addr_)
+            : EventBase(fd, EventType::CONN_IO),
+              req(std::make_shared<HTTPRequest>(BUFFER_SIZE)),
+              res(std::make_shared<HTTPResponse>(BUFFER_SIZE)),
+              addr(std::move(addr_)) {}
 
-        ~ConnData() {
-            cleanupReq();
-            cleanupRes();
+        ~ConnData() = default;
+
+        // Copy: shares req/res ownership with the source (both point to the same objects).
+        // enable_shared_from_this weak_ptr is NOT propagated — the copy must be managed by
+        // its own shared_ptr before shared_from_this() is callable on it.
+        ConnData(const ConnData &o)
+            : EventBase(o._fd, o._type), req(o.req), res(o.res),
+              addr(o.addr), deadline_(o.deadline_) {}
+
+        ConnData(ConnData &&o) noexcept
+            : EventBase(o._fd, o._type), req(std::move(o.req)), res(std::move(o.res)),
+              addr(std::move(o.addr)), deadline_(o.deadline_) {
+            o._fd = -1; o._type = EventType::UNINIT; o.deadline_ = {};
         }
 
-        void resetData() {
-            req->resetData();
-            res->resetData();
+        ConnData &operator=(const ConnData &o) {
+            if (this != &o) {
+                _fd = o._fd; _type = o._type;
+                req = o.req; res = o.res; addr = o.addr; deadline_ = o.deadline_;
+            }
+            return *this;
         }
 
-        void cleanup() {
-            cleanupReq();
-            cleanupRes();
+        ConnData &operator=(ConnData &&o) noexcept {
+            if (this != &o) {
+                _fd = o._fd; _type = o._type;
+                req = std::move(o.req); res = std::move(o.res);
+                addr = std::move(o.addr); deadline_ = o.deadline_;
+                o._fd = -1; o._type = EventType::UNINIT; o.deadline_ = {};
+            }
+            return *this;
         }
 
-        void cleanupReq() {
-            if (req == nullptr)
-                return;
-            delete req;
-            req = nullptr;
-        }
-
-        void cleanupRes() {
-            if (res == nullptr)
-                return;
-            delete res;
-            res = nullptr;
-        }
-
-        void initResponse() {
-            cleanupRes();
-            res = new HTTPResponse(BUFFER_SIZE);
-        }
-
-        void initRequest() {
-            cleanupReq();
-            req = new HTTPRequest(BUFFER_SIZE);
-        }
+        void resetData()    { req->resetData(); res->resetData(); }
+        void cleanup()      { req.reset(); res.reset(); }
+        void cleanupReq()   { req.reset(); }
+        void cleanupRes()   { res.reset(); }
+        void initResponse() { res = std::make_shared<HTTPResponse>(BUFFER_SIZE); }
+        void initRequest()  { req = std::make_shared<HTTPRequest>(BUFFER_SIZE); }
     };
     // using EventHandler = std::function<void(ConnData *)>;
 
@@ -223,14 +235,25 @@ namespace libs::http {
         void handleWrite(ConnData *eventDataPtr);
         void cleanupEvent(EventBase *event);
         void drainCompletions();
+        void scheduleTimeout(ConnData *conn, std::chrono::seconds duration);
+        void checkTimeouts();
+        int nextDeadlineMs();
 
     private:
+        struct TimeoutEntry {
+            std::chrono::steady_clock::time_point deadline;
+            ConnData *conn;
+            bool operator>(const TimeoutEntry &o) const { return deadline > o.deadline; }
+        };
+
         static std::atomic_int id_;
         EpollHandle handle_;
         SimpleServer *server_;
         std::unique_ptr<std::thread> th_;
         int pipes_[2];
         int completionPipes_[2];
+        std::priority_queue<TimeoutEntry, std::vector<TimeoutEntry>, std::greater<TimeoutEntry>> timeoutHeap_;
+        std::mutex timeoutMtx_;
     };
 
     class SimpleServer {
@@ -275,6 +298,8 @@ namespace libs::http {
         void addHandlers(const std::vector<std::tuple<HTTPMethod, URLFormat, HandlerFunction>>& handlers);
         void setDefaultHandler(HTTPMethod method, HandlerFunction fn);
         StatVal getStat() const;
+        void setReadTimeout(std::chrono::seconds d) { readTimeout_ = d; }
+        void setIdleTimeout(std::chrono::seconds d) { idleTimeout_ = d; }
         // bool changePort(int newPort);
         // void changePoolSize(int newSize);
 
@@ -297,6 +322,8 @@ namespace libs::http {
         std::string _address;
         unsigned int _port;
         std::size_t _poolSize;
+        std::chrono::seconds readTimeout_{30};
+        std::chrono::seconds idleTimeout_{60};
         HandlersMap handlers_;
         DefaultHandlersMap defaultHandlers_;
         std::shared_mutex handlerMtx_;
