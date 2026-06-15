@@ -158,7 +158,7 @@ TEST(MemBuf, inc_wr_pos_direct_write_pattern) {
 
 TEST(MemBuf, inc_wr_pos_overflow_asserts) {
     MemBuf buf(8);
-    EXPECT_DEATH(buf.incWrPos(9), "");
+    EXPECT_THROW(buf.incWrPos(9), std::runtime_error);
 }
 
 TEST(MemBuf, inc_rd_pos_clamps_to_avail) {

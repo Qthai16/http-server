@@ -46,11 +46,13 @@ namespace libs {
         }
 
         void assertReadExceed() {
-            assert(rdPos_ <= wrPos_);
+            if (rdPos_ > wrPos_)
+                throw std::runtime_error("read exceed");
         }
 
         void assertWriteExceed(size_t len) {
-            assert(len <= wr_avail());
+            if (len > wr_avail())
+                throw std::runtime_error("write exceed");
         }
 
         void reserve(size_t n) {
