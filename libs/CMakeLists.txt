@@ -5,6 +5,11 @@ project(dummy
     LANGUAGES CXX
 )
 
+if (NOT DEFINED CMAKE_CXX_STANDARD)
+    set(CMAKE_CXX_STANDARD 17)
+    message(STATUS "Unset CXX standard, set to: ${CMAKE_CXX_STANDARD}")
+endif()
+
 find_package(Threads REQUIRED)
 
 option(USE_OPENSSL "Build with OpenSSL" ON)

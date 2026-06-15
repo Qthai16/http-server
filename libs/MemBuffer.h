@@ -8,20 +8,28 @@
 #ifndef LIBS_MEMBUFFER_H
 #define LIBS_MEMBUFFER_H
 
+#include <algorithm>
+#include <cassert>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+
+// todo: maxCap = 65KB, if max cap reach, create new MemBuf and link to it
 
 namespace libs {
     class MemBuf {
     public:
         enum class Ownership {
+            UNSET,
             VIEW,
             OWN,
         };
 
     public:
-        MemBuf() : buf_(nullptr), wrPos_(0), rdPos_(0), cap_(0), ownType_(Ownership::VIEW) {}
+        MemBuf() : buf_(nullptr), wrPos_(0), rdPos_(0), cap_(0), ownType_(Ownership::UNSET) {}
         explicit MemBuf(std::size_t size) : buf_(nullptr), wrPos_(0), rdPos_(0), cap_(size), ownType_(Ownership::OWN) {
             buf_ = (char *) malloc(size);
         }
@@ -30,12 +38,44 @@ namespace libs {
             cleanup();
         }
 
+        explicit operator std::string() const {
+            // std::string conversion
+            if (rd_avail() == 0)
+                return {};
+            return std::string(rd_pos(), rd_avail());
+        }
+
+        void assertReadExceed() {
+            assert(rdPos_ <= wrPos_);
+        }
+
+        void assertWriteExceed(size_t len) {
+            assert(len <= wr_avail());
+        }
+
+        void reserve(size_t n) {
+            if (n <= cap_)
+                return;
+            if (ownType_ == Ownership::VIEW)
+                throw std::runtime_error("reserve on view buffer");
+            auto newbuf = (char *) realloc(buf_, n);
+            if (newbuf == nullptr)
+                throw std::runtime_error("failed alloc");
+            ownType_ = Ownership::OWN;
+            buf_ = newbuf;
+            cap_ = n;
+        }
+
         void cleanup() {
-            if (ownType_ == Ownership::OWN) {
+            if (ownType_ == Ownership::OWN && buf_ != nullptr) {
                 free(buf_);
+                buf_ = nullptr;
+                cap_ = 0;
             }
-            buf_ = nullptr;
-            cap_ = 0;
+        }
+
+        bool inited() const {
+            return buf_ != nullptr && cap_ > 0;
         }
 
         bool empty() const {
@@ -46,33 +86,42 @@ namespace libs {
             return wrPos_ == cap_;
         }
 
+        void extendBuffer(size_t len) {
+            if (ownType_ == Ownership::VIEW || len <= wr_avail())
+                return;
+            auto newCap = (cap_ == 0) ? len : cap_ * 2; // todo: std::min(cap_ * 2, MAX_BUFFER_CAP)
+            if (newCap - wrPos_ < len) // if still not enough
+                newCap = wrPos_ + len; // this is dangerous, because we alloc new buffer with no cap
+            auto newbuf = (char *) realloc(buf_, newCap); // same with malloc if buf_ == NULL
+            if (newbuf == nullptr)
+                throw std::runtime_error("failed alloc");
+            ownType_ = Ownership::OWN;
+            buf_ = newbuf;
+            cap_ = newCap;
+        }
+
         size_t write(const char *data, size_t len) {
             if (data == nullptr || len == 0)
                 return 0;
-            if (wrPos_ + len >= cap_) {
-                auto newsize = (cap_ == 0) ? len : cap_ * 2;
-                if (newsize < wrPos_ + len)
-                    newsize = wrPos_ + len;
-                auto newbuf = (char *) realloc(buf_, newsize);
-                if (newbuf == nullptr)
-                    return 0;
-                buf_ = newbuf;
-                cap_ = newsize;
-            }
+            if (ownType_ == Ownership::VIEW)
+                throw std::runtime_error("write on view buffer");
+            extendBuffer(len);
             memcpy(buf_ + wrPos_, data, len);
-            wrPos_ += len;
+            incWrPos(len);
             return len;
         }
 
+        size_t write(std::string_view val) {
+            return write(val.data(), val.size());
+        }
+
         size_t read(char *outbuf, size_t len) {
-            if (outbuf == nullptr || len == 0)
+            assertReadExceed();
+            if (outbuf == nullptr || len == 0 || empty())
                 return 0;
-            if (rdPos_ >= wrPos_)
-                return 0;
-            if (len > wrPos_ - rdPos_)
-                len = wrPos_ - rdPos_;
+            len = std::min(len, rd_avail());
             memcpy(outbuf, buf_ + rdPos_, len);
-            rdPos_ += len;
+            incRdPos(len);
             return len;
         }
 
@@ -85,18 +134,12 @@ namespace libs {
         }
 
         void incWrPos(size_t cnt) {
-            if (wrPos_ + cnt >= cap_) {
-                wrPos_ = cap_;
-                return;
-            }
+            assertWriteExceed(cnt);
             wrPos_ += cnt;
         }
 
         void incRdPos(size_t cnt) {
-            if (rdPos_ + cnt >= wrPos_) {
-                rdPos_ = wrPos_;
-                return;
-            }
+            cnt = std::min(cnt, rd_avail());
             rdPos_ += cnt;
         }
 
@@ -105,13 +148,21 @@ namespace libs {
             *len = wrPos_ - rdPos_;
         }
 
-        size_t size() const {
+        std::string_view str_view() const {
+            return std::string_view(rd_pos(), rd_avail());
+        }
+
+        size_t rd_avail() const {
             return wrPos_ - rdPos_;
         }
 
         size_t cap() const {
             return cap_;
         }
+
+        // size_t size() const {
+        //     return wrPos_;
+        // }
 
         size_t wr_avail() const {
             return cap_ - wrPos_;
@@ -139,71 +190,6 @@ namespace libs {
         size_t cap_;
         Ownership ownType_;
     };
-
-    // FixMemBuf use a fixed size allocated memory when write, and wrap over
-    // class FixMemBuf : public MemBuf {
-    //     FixMemBuf() : MemBuf() {}
-    //     explicit FixMemBuf(std::size_t size) : MemBuf(size) {}
-    //     ~FixMemBuf() override {}
-
-    //     size_t write(const char *data, size_t len) override {
-    //         if (data == nullptr || len == 0)
-    //             return 0;
-    //         if (wrPos_ + len >= size_) {
-    //             auto last = size_ - wrPos_;
-                
-    //         }
-    //         memcpy(buf_ + wrPos_, data, len);
-    //         wrPos_ += len;
-    //         return len;
-    //     }
-
-    //     size_t read(char *outbuf, size_t len) override {
-            
-    //     }
-    // };
-
-    // AutoMemBuf auto allocate more memory when write, up to max buffer size
-    // class AutoMemBuf : public MemBuf {
-    // public:
-    //     AutoMemBuf() : MemBuf() {}
-    //     explicit AutoMemBuf(std::size_t size) : MemBuf(size) {}
-    //     ~AutoMemBuf() override {}
-    // public:
-    //     bool empty() const override {
-    //         return rdPos_ == wrPos_;
-    //     }
-
-    //     bool full() const override {
-    //         return wrPos_ - rdPos_ == size_;
-    //     }
-
-    //     size_t write(const char *data, size_t len) override {
-    //         if (data == nullptr || len == 0)
-    //             return 0;
-    //         if (wrPos_ + len >= size_) {
-    //             auto newsize = size_ * 2;
-    //             auto newbuf = (char *) realloc(buf_, newsize);
-    //             buf_ = newbuf;
-    //             size_ = newsize;
-    //         }
-    //         memcpy(buf_ + wrPos_, data, len);
-    //         wrPos_ += len;
-    //         return len;
-    //     }
-
-    //     size_t read(char *outbuf, size_t len) override {
-    //         if (outbuf == nullptr || len == 0)
-    //             return 0;
-    //         if (rdPos_ >= wrPos_)
-    //             return 0;
-    //         if (len > wrPos_ - rdPos_)
-    //             len = wrPos_ - rdPos_;
-    //         memcpy(outbuf, buf_ + rdPos_, len);
-    //         rdPos_ += len;
-    //         return len;
-    //     }
-    // };
 }// namespace libs
 
 

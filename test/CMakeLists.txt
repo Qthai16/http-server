@@ -11,6 +11,7 @@ set(test_SRC
     SSLUtils_test.cpp
     HttpMessage_test.cpp
     HttpServer_test.cpp
+    MemBuffer_test.cpp
 )
 
 add_executable(dummy-test
@@ -45,7 +46,7 @@ target_compile_options(dummy-test PRIVATE
 
 target_link_libraries(dummy-test PRIVATE
     libs::dummy
-    ssl crypto
+    ssl crypto curl
     gtest gtest_main
     pthread
     -fsanitize=address

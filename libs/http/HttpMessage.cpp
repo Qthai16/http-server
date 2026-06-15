@@ -10,6 +10,11 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+// todo: reject request if content length to large
+
+#define MAX_MEM_BUFFER_SIZE     32768ul
+#define MAX_BODY_SIZE           (8ul * 1024 * 1024)  // 8 MB hard limit per request body
+
 namespace libs::http {
 
     // std::initializer_list<std::string> requiredHeaders = {"Content-Type", "Content-Length", "Connection"};
@@ -224,7 +229,13 @@ namespace libs::http {
         return _finishParseHeaders && _expectContinue;
     }
 
+    void HTTPRequest::reset_expect_continue(bool val) {
+        _expectContinue = val;
+    }
+
     void HTTPRequest::resetData() {
+        _version = HTTPVersion::HTTP_1_1;
+        _method = HTTPMethod::GET;
         _headers.clear();
         _queryParams.clear();
         _path.clear();
@@ -313,6 +324,8 @@ namespace libs::http {
         if (foundTerminator) {
             _expectContinue = expect_100_continue();
             _contentLength = content_length();
+            if (_contentLength > MAX_BODY_SIZE)
+                throw std::runtime_error("request body too large");
             _finishParseHeaders = true;
         }
         return totalCnt;
@@ -323,26 +336,25 @@ namespace libs::http {
     }
 
     std::string HTTPRequest::body_str() const {
-        if (body_buf_.size() == 0)
-            return {};
-        return std::string(body_buf_.rd_pos(), body_buf_.size());
+        return static_cast<std::string>(body_buf_);
     }
 
     std::size_t HTTPRequest::parse_request() {
         if (!_finishParseHeaders) {
-            auto headerSize = parse_headers(recv_buf_.rd_pos(), recv_buf_.size());
+            auto headerSize = parse_headers(recv_buf_.rd_pos(), recv_buf_.rd_avail());
             recv_buf_.incRdPos(headerSize);
             _totalRead += headerSize;
-            if (_finishParseHeaders)
+            if (_finishParseHeaders) {
                 _headerSize = _totalRead;
+                body_buf_.reserve(std::min(MAX_MEM_BUFFER_SIZE, _contentLength));
+            }
         }
         if (_finishParseHeaders) {
-            auto bodyBytes = recv_buf_.size();
-            if (bodyBytes > 0) {
-                body_buf_.write(recv_buf_.rd_pos(), bodyBytes);
-                recv_buf_.incRdPos(bodyBytes);
-                _totalRead += bodyBytes;
-            }
+            auto remaining = _contentLength - (_totalRead - _headerSize);
+            auto len = std::min(recv_buf_.rd_avail(), remaining);
+            body_buf_.write(recv_buf_.rd_pos(), len);
+            recv_buf_.incRdPos(len);
+            _totalRead += len;
         }
         if (recv_buf_.empty())
             recv_buf_.resetBuf();
@@ -465,19 +477,18 @@ namespace libs::http {
         }
         ss << "\r\n";
         std::string text(std::move(ss.str()));
+        buffer_->reserve(std::min(MAX_MEM_BUFFER_SIZE, text.size() + _contentLength));
         buffer_->write(text.data(), text.size());
         _finishWriteHeader = true;
     }
 
     void HTTPResponse::write_mem_body() {
         // todo: copy for now, use view ownership with readv/writev later
-        assert(!memBody_.empty() && _readType == ReadType::IN_MEMORY_READ);
-        size_t len = 0;
-        if (_contentLength - _totalWrite <= buffer_->wr_avail()) {
-            len = _contentLength - _totalWrite;
-        } else {
+        assert(_readType == ReadType::IN_MEMORY_READ);
+        if (expr_unlikely(memBody_.empty())) return;
+        size_t len = _contentLength - _totalWrite;
+        if (len > buffer_->wr_avail())
             len = buffer_->wr_avail();
-        }
         buffer_->write(memBody_.data() + wrOff_, len);
         wrOff_ += len;
         _totalWrite += len;
@@ -485,12 +496,10 @@ namespace libs::http {
 
     void HTTPResponse::write_file_body() {
         assert(fileFd_ >= 0 && _readType == ReadType::FILE_READ);
-        size_t len = 0;
-        if (_contentLength - _totalWrite <= buffer_->wr_avail()) {
-            len = _contentLength - _totalWrite;
-        } else {
+        size_t len = _contentLength - _totalWrite;
+        if (len > buffer_->wr_avail())
             len = buffer_->wr_avail();
-        }
+        // todo: could use mmap file and map to directly page address to buffer
         libs::read(fileFd_, wrOff_, buffer_->wr_pos(), len);
         buffer_->incWrPos(len);
         wrOff_ += len;
@@ -518,8 +527,8 @@ namespace libs::http {
             default:
                 break;
         }
-        buffer_->resetBuf();
-        _httpCode = HTTPCode::CODE_100;
+        if (buffer_) buffer_->resetBuf();
+        _httpCode = HTTPCode::CODE_200;
         _version = HTTPVersion::HTTP_1_1;
         _readType = ReadType::UNINIT;
         _finishWriteHeader = false;

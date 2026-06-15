@@ -11,7 +11,7 @@ on:
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   # BUILD_TYPE: Release
-  BUILD_DEPS: make cmake autoconf g++ ninja-build libssl-dev libcurl4-openssl-dev zlib1g-dev libboost-all-dev
+  BUILD_DEPS: make cmake autoconf g++ ninja-build libssl-dev libcurl4-openssl-dev zlib1g-dev libboost-all-dev liblmdb-dev
 
 jobs:
   build:
