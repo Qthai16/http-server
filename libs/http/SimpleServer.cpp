@@ -11,7 +11,6 @@ using namespace std::chrono_literals;
 
 // todo: cleanup connection (close fd, delete event) when server stop
 // todo: use readv and writev to read/write multiple app buffer
-// todo: seperated handler thread for calling request handler
 
 // more details stat, including:
 // - COUNTER: total time processed, can be break down into:
@@ -23,16 +22,6 @@ using namespace std::chrono_literals;
 // - GAUGE: handler task queue depth
 
 namespace libs::http {
-    std::map<std::string, std::string> _mimeTypes = {
-            {".js", "text/javascript"},
-            {".txt", "text/plain"},
-            {".html", "text/html"},
-            {".htm", "text/html"},
-            {".svg", "image/svg+xml"},
-            {".png", "image/png"},
-            {".jpg", "image/jpeg"},
-            {".jpeg", "image/jpeg"},
-            {".css", "text/css"}};
     std::atomic_int IOWorker::id_{0};
 
     void Acceptor::initSocket() {
@@ -150,15 +139,15 @@ namespace libs::http {
             th_->join();
             th_.reset();
         }
-        // After the event loop exits, drain any ConnData still tracked in the heap.
-        // Lazy deletion means the heap may contain stale entries; the deadline_ == entry.deadline
-        // check skips them, so each live ConnData is cleaned up exactly once.
-        while (!timeoutHeap_.empty()) {
-            auto entry = timeoutHeap_.top();
-            timeoutHeap_.pop();
-            if (entry.conn->deadline_ == entry.deadline)
-                cleanupEvent(entry.conn);
+        // After the event loop exits connMap_ holds every still-open connection.
+        // Drain it to close their fds; timeoutHeap_ shared_ptrs are released when the heap destructs.
+        for (auto &[fd, conn] : connMap_) {
+            handle_.delete_fd(fd);
+            ::close(fd);
+            conn->deadline_ = {};
+            stat_.decActiveConn();
         }
+        connMap_.clear();
         ::close(pipes_[0]);
         ::close(pipes_[1]);
         pipes_[0] = pipes_[1] = -1;
@@ -196,10 +185,14 @@ namespace libs::http {
     }
 
     void IOWorker::addConn(int fd, AddrPair &&addr) {
-        auto eventData = server_->getOrCreateConn(fd, std::move(addr));
-        stat_.incCreatedConn();
-        scheduleTimeout(eventData, server_->readTimeout_);
-        handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, eventData);// leveled triggered
+        auto [conn, created] = server_->getOrCreateConn(fd, std::move(addr));
+        if (created) stat_.incCreatedConn();
+        {
+            std::lock_guard<std::mutex> lk(timeoutMtx_);
+            connMap_[fd] = conn;
+        }
+        scheduleTimeout(conn.get(), server_->readTimeout_);
+        handle_.add_or_modify_fd(fd, EPOLLIN, EPOLL_CTL_ADD, conn.get());
     }
 
     void IOWorker::eventLoop() {
@@ -271,7 +264,7 @@ namespace libs::http {
                 if (httpReqPtr->have_expect_continue()) {
                     // notify send expect continue
                     connPtr->req->reset_expect_continue(false);
-                    server_->onExpectContinue(connPtr->req, connPtr->res);
+                    server_->onExpectContinue(connPtr->req.get(), connPtr->res.get());
                     handle_.add_or_modify_fd(fd, EPOLLOUT, EPOLL_CTL_MOD, connPtr);
                     if (httpReqPtr->request_completed()) {
                         connPtr->deadline_ = {};// disarm: handler runs in pool, no fixed deadline
@@ -354,9 +347,19 @@ namespace libs::http {
         handle_.delete_fd(event->_fd);
         ::close(event->_fd);
         if (connData) {
-            connData->deadline_ = {}; // mark stale so any pending heap entry is discarded
+            connData->deadline_ = {};
             stat_.decActiveConn();
-            server_->pushCacheConn(connData);
+            std::shared_ptr<ConnData> ptr;
+            {
+                std::lock_guard<std::mutex> lk(timeoutMtx_);
+                auto it = connMap_.find(connData->_fd);
+                // identity check guards against fd reuse between close and erase
+                if (it != connMap_.end() && it->second.get() == connData) {
+                    ptr = std::move(it->second);
+                    connMap_.erase(it);
+                }
+            }
+            if (ptr) server_->pushCacheConn(std::move(ptr));
             return;
         }
         delete event;
@@ -368,23 +371,23 @@ namespace libs::http {
             return;
         conn->deadline_ = std::chrono::steady_clock::now() + duration;
         std::lock_guard<std::mutex> lk(timeoutMtx_);
-        timeoutHeap_.push({conn->deadline_, conn});
+        timeoutHeap_.push({conn->deadline_, conn->shared_from_this()});
     }
 
     void IOWorker::checkTimeouts() {
         auto now = std::chrono::steady_clock::now();
-        std::vector<ConnData *> expired;
+        std::vector<std::shared_ptr<ConnData>> expired;
         {
             std::lock_guard<std::mutex> lk(timeoutMtx_);
             while (!timeoutHeap_.empty() && timeoutHeap_.top().deadline <= now) {
                 auto entry = timeoutHeap_.top();
                 timeoutHeap_.pop();
-                if (entry.conn->deadline_ == entry.deadline) // not stale
+                if (entry.conn->deadline_ == entry.deadline) // not stale; shared_ptr keeps alive
                     expired.push_back(entry.conn);
             }
         }
-        for (auto *conn : expired)
-            cleanupEvent(conn);
+        for (auto &conn : expired)
+            cleanupEvent(conn.get());
     }
 
     int IOWorker::nextDeadlineMs() {
@@ -427,8 +430,8 @@ namespace libs::http {
         taskPool_ = std::make_unique<TaskPool>(_poolSize, [](HandlerTask &task) {
             auto *conn = task.data;
             auto *server = task.server;
-            auto *req = conn->req;
-            auto *res = conn->res;
+            auto *req = conn->req.get();
+            auto *res = conn->res.get();
 
             auto handler = server->getHandler(req->_method, req->_path);
             if (!handler) {
@@ -478,11 +481,8 @@ namespace libs::http {
             }
 #ifdef CACHE_CONN
             printf("cached connections: %d\n", static_cast<int>(cacheConn_.size()));
-            while (!cacheConn_.empty()) {
-                auto conn = cacheConn_.top();
-                cacheConn_.pop();
-                delete conn;
-            }
+            while (!cacheConn_.empty())
+                cacheConn_.pop(); // shared_ptr destructs each ConnData naturally
 #endif
         }
     }
@@ -570,54 +570,41 @@ namespace libs::http {
         ioWorkers_[i]->addConn(fd, std::move(addr));
     }
 
-    ConnData *SimpleServer::getOrCreateConn(int fd, AddrPair &&addr) {
+    std::pair<std::shared_ptr<ConnData>, bool> SimpleServer::getOrCreateConn(int fd, AddrPair &&addr) {
 #ifdef CACHE_CONN
         std::unique_lock<std::mutex> lock(cacheConnMtx_);
         if (!cacheConn_.empty()) {
-            auto conn = cacheConn_.top();
-            assert(conn);
+            auto conn = std::move(cacheConn_.top());
             cacheConn_.pop();
             lock.unlock();
             conn->_fd = fd;
             conn->addr = std::move(addr);
-            return conn;
+            conn->resetData();
+            return {conn, false};
         }
-        // auto status = cv_.wait_for(lock, 1ms, [this] {
-        //     return !cacheConn_.empty();
-        // });
-        // if (status) {
-        //     auto conn = cacheConn_.top();
-        //     assert(conn);
-        //     cacheConn_.pop();
-        //     lock.unlock();
-        //     conn->_fd = fd;
-        //     conn->addr = std::move(addr);
-        //     return conn;
-        // }
-        // lock.unlock();
-        return new ConnData(fd, std::move(addr));
+        lock.unlock();
+        return {std::make_shared<ConnData>(fd, std::move(addr)), true};
 #else
-        return new ConnData(fd, std::move(addr));
+        return {std::make_shared<ConnData>(fd, std::move(addr)), true};
 #endif
     }
 
-    bool SimpleServer::pushCacheConn(ConnData *conn) {
+    bool SimpleServer::pushCacheConn(std::shared_ptr<ConnData> conn) {
         if (!conn) return false;
 #ifdef CACHE_CONN
         std::unique_lock<std::mutex> lock(cacheConnMtx_);
         if (cacheConn_.size() >= MAX_CACHE_CONN) {
             lock.unlock();
-            delete conn;
+            // conn goes out of scope and destructs naturally
             return false;
         }
         conn->resetData();
-        cacheConn_.push(conn);
+        cacheConn_.push(std::move(conn));
         lock.unlock();
         cv_.notify_one();
         return true;
 #else
-        delete conn;
-        conn = nullptr;
+        // conn goes out of scope and destructs naturally
         return true;
 #endif
     }

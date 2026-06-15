@@ -46,6 +46,16 @@ constexpr auto g_workerSize = 4;
 constexpr size_t g_maxFD = 65535;
 
 std::shared_ptr<SimpleServer> server_{nullptr};
+std::map<std::string, std::string> g_mimeTypes = {
+        {".js", "text/javascript"},
+        {".txt", "text/plain"},
+        {".html", "text/html"},
+        {".htm", "text/html"},
+        {".svg", "image/svg+xml"},
+        {".png", "image/png"},
+        {".jpg", "image/jpeg"},
+        {".jpeg", "image/jpeg"},
+        {".css", "text/css"}};
 
 #include <signal.h>
 #include "libs/OSUtils.h"
@@ -68,18 +78,9 @@ void onResourceNotFound(HTTPRequest *req, HTTPResponse *res) {
 }
 
 static void sendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *response) {
-    // if (!fs::exists(path)) {
-    //     // send 404 not found
-    //     std::string sendData = R"JSON({"errors": "resource not found"})JSON";
-    //     response->http_code(CODE_404);
-    //     response->str_body(sendData);
-    //     response->insert_header({"Content-Type", "application/json"});
-    //     return;
-    // }
-
     auto extension = fs::path(path).extension().string();
-    if (libs::http::_mimeTypes.count(extension)) {
-        response->insert_header({"Content-Type", libs::http::_mimeTypes.at(extension)});
+    if (g_mimeTypes.count(extension)) {
+        response->insert_header({"Content-Type", g_mimeTypes.at(extension)});
     } else {
         response->insert_header({"Content-Type", "application/octet-stream"});// default for others
     }
@@ -88,7 +89,6 @@ static void sendStaticFile(std::string path, HTTPRequest *req, HTTPResponse *res
     // ss << file.rdbuf();
     // response->str_body(ss.str());
     response->file_body(path);
-    // todo: leaked mem due to connection not being clean up (tested by chrome)
 }
 
 std::vector<std::tuple<HTTPMethod, SimpleServer::URLFormat, SimpleServer::HandlerFunction>> buildStaticAssets(std::string rootPath) {

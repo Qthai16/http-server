@@ -75,11 +75,6 @@ namespace libs {
             if (expr_unlikely(requestStop))
                 return false;
             jobqueue.push(std::move(j));
-            // if (onWorkCnt.load(std::memory_order_acquire) < nWorker) {// some worker is idle, notify it
-            //     lock.unlock();
-            //     cv.notify_one();
-            // }
-            // return true;
             // always notify
             lock.unlock();
             cv.notify_one();

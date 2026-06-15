@@ -234,6 +234,8 @@ namespace libs::http {
     }
 
     void HTTPRequest::resetData() {
+        _version = HTTPVersion::HTTP_1_1;
+        _method = HTTPMethod::GET;
         _headers.clear();
         _queryParams.clear();
         _path.clear();

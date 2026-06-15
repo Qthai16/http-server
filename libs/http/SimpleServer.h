@@ -32,12 +32,10 @@
 #define BUFFER_SIZE      4096
 #define QUEUEBACKLOG     1024
 #define MAX_EPOLL_EVENTS 512
-// #define MAX_CACHE_CONN   128
+// #define MAX_CACHE_CONN   100
 // #define CACHE_CONN
 
 namespace libs::http {
-
-    extern std::map<std::string, std::string> _mimeTypes;
     enum class EventType {
         UNINIT = 0,
         CONN_IO,
@@ -242,7 +240,7 @@ namespace libs::http {
     private:
         struct TimeoutEntry {
             std::chrono::steady_clock::time_point deadline;
-            ConnData *conn;
+            std::shared_ptr<ConnData> conn;
             bool operator>(const TimeoutEntry &o) const { return deadline > o.deadline; }
         };
 
@@ -253,6 +251,7 @@ namespace libs::http {
         int pipes_[2];
         int completionPipes_[2];
         std::priority_queue<TimeoutEntry, std::vector<TimeoutEntry>, std::greater<TimeoutEntry>> timeoutHeap_;
+        std::unordered_map<int, std::shared_ptr<ConnData>> connMap_;
         std::mutex timeoutMtx_;
     };
 
@@ -308,8 +307,8 @@ namespace libs::http {
         AddrPair addrParse(struct sockaddr *sa);
         HandlerFunction getHandler(HTTPMethod method, const std::string &path);
         void addConnection(int i, int fd, AddrPair &&addr);
-        ConnData *getOrCreateConn(int fd, AddrPair &&addr);
-        bool pushCacheConn(ConnData *conn);
+        std::pair<std::shared_ptr<ConnData>, bool> getOrCreateConn(int fd, AddrPair &&addr);
+        bool pushCacheConn(std::shared_ptr<ConnData> conn);
 
     private:
         static void onExpectContinue(HTTPRequest *req, HTTPResponse *res);
@@ -332,7 +331,7 @@ namespace libs::http {
         std::vector<IOWorker *> ioWorkers_;
         std::unique_ptr<TaskPool> taskPool_;
 #ifdef CACHE_CONN
-        std::stack<ConnData *> cacheConn_;
+        std::stack<std::shared_ptr<ConnData>> cacheConn_;
         mutable std::mutex cacheConnMtx_;// for caching connections
         std::condition_variable cv_;     // notify when cached connection available
 #endif
